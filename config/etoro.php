@@ -13,7 +13,7 @@ return [
     |
     */
 
-    'enabled' => env('ETORO_ENABLED', true),
+    'enabled' => env('ETORO_ENABLED', false),
 
     'base_url' => env('ETORO_BASE_URL', 'https://public-api.etoro.com'),
 

@@ -145,3 +145,95 @@ Rezultati provere:
 Milestone 1 ne počinje bez posebnog odobrenja.
 
 ---
+
+## 2026-07-30 — Prvi commit i push na GitHub
+
+Komande:
+
+```bash
+git add -A
+git commit -m "Milestone 0: scaffold read-only TradeLedger analytics app"
+git remote add origin git@github.com:jyllson/trade-ledger.git
+git push -u origin main   # ispravljen remote alias/rebase, vidi ispod
+```
+
+Napomene:
+
+- Pre commit-a dodat `.claude/settings.local.json` u `.gitignore`; provereno
+  da `.env` ostaje ignorisan.
+- U prvi (kasnije amendovan) commit je greškom ušao `.env.swp` (editor swap
+  fajl, potencijalno sa sadržajem `.env`). Uklonjen iz indeksa, dodati
+  `.env.*` (uz `!.env.example`), `*.swp`, `*.swo` u `.gitignore`, commit
+  amendovan, pa `git reflog expire` + `git gc --prune=now` da obrišu i
+  nereferencirani objekat. Commit u tom trenutku još nije bio push-ovan, pa
+  rotacija ključeva nije bila potrebna.
+- Podrazumevani SSH ključ se autentifikovao kao pogrešan GitHub nalog;
+  korišćen postojeći `~/.ssh/config` alias `github-jyllson` (remote URL
+  `git@github-jyllson:jyllson/trade-ledger.git`).
+- Remote repo je već sadržao inicijalni commit sa `LICENSE` fajlom; lokalna
+  grana rebase-ovana preko njega (bez konflikata) pre push-a.
+
+Rezultat: grana `main` push-ovana i prati `origin/main`.
+
+---
+
+## 2026-07-30 — Code review korekcije Milestone 0
+
+Code review Milestone 0 zahtevao je dve obavezne korekcije pre Milestone 1 i
+nekoliko manjih cleanup izmena. Commit nije napravljen u okviru ovog koraka —
+čeka eksplicitno odobrenje vlasnika projekta.
+
+### 1. CI: SQLite umesto MySQL-a tokom Setup Application koraka
+
+`.github/workflows/tests.yml` je pokretao `composer setup` (koji uključuje
+`php artisan migrate --force`) bez ijedne dostupne baze, jer `.env.example`
+konfiguriše MySQL a CI nema MySQL servis. Dodat korak koji kreira
+`database/database.sqlite` i env varijable `DB_CONNECTION=sqlite` /
+`DB_DATABASE=database/database.sqlite` isključivo za Setup Application korak.
+`.env.example` i lokalni `.env` nisu menjani. Vidi DECISIONS.md D-010.
+
+### 2. `WriteSurfaceTest`: dozvoljen privatni `request()` helper
+
+Test je ranije zabranjivao `request`/`send` bez obzira na vidljivost, što je
+u koliziji sa PROJECT.md §10 (zabranjen je javni generički request API, ne i
+privatni infrastrukturni helper). Test je razdvojen na dve liste: zabrane bez
+obzira na vidljivost (write/trading metode) i zabrane samo kada je metoda
+public (`request`, `send`). Test i dalje samo proverava nazive metoda
+refleksijom — stvarno GET-only ponašanje dokazuje se tek u Milestone 1 kroz
+`Http::fake()`. Vidi DECISIONS.md D-011.
+
+### 3. Manji cleanup
+
+- `composer.json`: `name` → `jyllson/trade-ledger`, ažurirani `description` i
+  `keywords`.
+- Obrisani `tests/Feature/ExampleTest.php`, `tests/Unit/ExampleTest.php`;
+  uklonjeni `something()` i `expect()->extend('toBeOne', ...)` iz
+  `tests/Pest.php`.
+- Dodat `README.md` (lokalni setup + upozorenje o API ključevima).
+- `ETORO_ENABLED` podrazumevano `false` u `config/etoro.php` i
+  `.env.example`.
+
+Vidi DECISIONS.md D-012.
+
+### Komande i rezultati
+
+```bash
+php artisan test --compact       # 21 passed, 40 assertions (bilo 23 pre brisanja ExampleTest fajlova)
+vendor/bin/pint --format agent   # passed
+vendor/bin/phpstan analyse       # 0 errors
+```
+
+Izmenjeni/obrisani fajlovi u ovom koraku:
+
+- `.github/workflows/tests.yml`
+- `tests/Feature/Etoro/WriteSurfaceTest.php`
+- `composer.json`
+- `tests/Pest.php`
+- `README.md` (novi)
+- `config/etoro.php`, `.env.example`
+- obrisani: `tests/Feature/ExampleTest.php`, `tests/Unit/ExampleTest.php`
+
+**Implementacija EtoroClient-a nije započeta u okviru ove korekcije**, kako
+je i traženo. Commit čeka eksplicitno odobrenje vlasnika projekta.
+
+---

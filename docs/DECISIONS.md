@@ -169,3 +169,71 @@ nudi — **trenutni UI odstupa od javne dokumentacije**.
 `.env` vlasnika koristi `real` (lokalni `.env` se ne čita i ne menja).
 
 ---
+
+## D-010: CI koristi SQLite umesto MySQL-a tokom Milestone 0
+
+**Datum:** 2026-07-30
+**Status:** korekcija posle code review-a Milestone 0
+
+**Kontekst:** `.github/workflows/tests.yml` je pokretao `composer setup`, koji
+izvršava `php artisan migrate --force`, dok `.env.example` konfiguriše MySQL.
+Workflow nije imao MySQL servis, pa migracija u CI-ju nije imala dostupnu bazu.
+
+**Odluka:**
+
+- Setup Application korak u CI-ju sada kreira `database/database.sqlite` i
+  eksplicitno postavlja `DB_CONNECTION=sqlite` i
+  `DB_DATABASE=database/database.sqlite` kao environment varijable samo za taj
+  korak — ne menja `.env.example` niti lokalni `.env`.
+- Poseban MySQL 8.4 integration job se ne dodaje u Milestone 0 — ostavljen za
+  kasnije, kada aplikacija dobije sopstvene migracije (trader/portfolio
+  tabele) čije bi ponašanje moglo zavisiti od MySQL-specifičnih detalja.
+
+**Razmatrane alternative:** dodavanje MySQL service kontejnera u workflow već
+u Milestone 0 (odbijeno — nema još migracija specifičnih za MySQL da bi to
+opravdalo; SQLite je dovoljan za CI dok schema ne postoji).
+
+---
+
+## D-011: `WriteSurfaceTest` dozvoljava privatni `request()` helper
+
+**Datum:** 2026-07-30
+**Status:** korekcija posle code review-a Milestone 0
+
+**Kontekst:** Test je zabranjivao metode `request` i `send` bez obzira na
+vidljivost (visibility). PROJECT.md §10 zabranjuje **javni generički**
+request API ("expose typed read methods rather than a public generic request
+method"), ali ne zabranjuje privatni/protected infrastrukturni helper koji
+`EtoroClient` može interno koristiti za slanje GET zahteva.
+
+**Odluka:**
+
+- Metode zabranjene bez obzira na vidljivost: eksplicitne write/trading
+  operacije (`post`, `put`, `patch`, `delete`, `executeOrder`,
+  `startCopying`, `deposit`, `withdraw`, `transfer`, ...).
+- Metode zabranjene samo kada su **public**: `request`, `send` — privatni
+  read-only helper istog imena je dozvoljen.
+- Ovaj test i dalje samo proverava nazive i vidljivost metoda refleksijom;
+  ne dokazuje da klijent stvarno šalje samo GET zahteve.
+- Stvarno read-only ponašanje (isključivo GET) dokazuje se tek u Milestone 1
+  kroz `Http::fake()` testove nad implementiranim `EtoroClient`-om.
+
+---
+
+## D-012: Composer package identity, cleanup i podrazumevano `ETORO_ENABLED=false`
+
+**Datum:** 2026-07-30
+**Status:** korekcija posle code review-a Milestone 0
+
+- `composer.json` `name` promenjen sa `laravel/blank-livewire-starter-kit` na
+  `jyllson/trade-ledger`; ažurirani `description` i `keywords`.
+- Obrisani starter fajlovi `tests/Feature/ExampleTest.php`,
+  `tests/Unit/ExampleTest.php`, i primeri `something()` /
+  `expect()->extend('toBeOne', ...)` iz `tests/Pest.php`.
+- Dodat `README.md` sa lokalnim setupom i eksplicitnim upozorenjem da se API
+  ključevi nikada ne commituju.
+- `ETORO_ENABLED` podrazumevano `false` (u `config/etoro.php` i
+  `.env.example`) — integracija ostaje isključena dok vlasnik projekta ručno
+  ne uključi u lokalnom `.env` na početku Milestone 1.
+
+---

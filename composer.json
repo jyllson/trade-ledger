@@ -1,9 +1,9 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/blank-livewire-starter-kit",
+    "name": "jyllson/trade-ledger",
     "type": "project",
-    "description": "The official Laravel starter kit for Livewire.",
-    "keywords": ["laravel", "framework"],
+    "description": "TradeLedger: personal, read-only analytics for discovering, comparing, and monitoring eToro copy traders.",
+    "keywords": ["laravel", "filament", "etoro", "copy-trading", "analytics", "read-only"],
     "license": "MIT",
     "require": {
         "php": "^8.3",
