@@ -1,0 +1,171 @@
+# DECISIONS — TradeLedger
+
+Zapis važnih arhitektonskih i implementacionih odluka.
+
+---
+
+## D-001: MySQL 9.7.1 za lokalni development, ciljana kompatibilnost MySQL 8.4+
+
+**Datum:** 2026-07-30
+**Status:** odobreno od vlasnika projekta
+
+**Kontekst:** PROJECT.md navodi MySQL 8. Na razvojnoj mašini je već instaliran
+i pokrenut MySQL 9.7.1 (Yerd). Instalacija paralelne MySQL 8 instance uvela bi
+nepotrebnu složenost.
+
+**Odluka:**
+
+- MySQL 9.7.1 se koristi za lokalni development.
+- Minimalni ciljani nivo SQL kompatibilnosti aplikacije je **MySQL 8.4+**.
+- Ne koriste se funkcije, tipovi, sintaksa ili konfiguracija specifični samo za
+  MySQL 9.7 bez prethodnog obrazloženja i odobrenja vlasnika projekta.
+- Standardne Laravel migracije, Eloquent i Query Builder imaju prednost nad
+  ručnim vendor-specific SQL-om.
+
+**Razmatrane alternative:** instalacija MySQL 8 (odbijeno — dodatna instanca
+bez praktične koristi; Laravel sloj apstrahuje razlike).
+
+---
+
+## D-002: Naziv lokalne baze `trade_ledger`
+
+**Datum:** 2026-07-30
+**Status:** odobreno od vlasnika projekta
+
+Naziv projekta je TradeLedger (radni repo `trade-ledger`), pa `.env.example`
+koristi `DB_DATABASE=trade_ledger`, a ne naziv direktorijuma `tradelytics`.
+
+---
+
+## D-003: Laravel Boost se ne reinstalira
+
+**Datum:** 2026-07-30
+
+`laravel/boost` v2.4.13 je već prisutan u `require-dev`, a `boost:install` je
+već izvršen (postoje `boost.json`, `.mcp.json` i Boost guidelines u
+`CLAUDE.md`). Ponovna instalacija bi bila no-op sa rizikom prepisivanja
+postojeće konfiguracije. Livewire 4 i Pest 5 su takođe već obezbeđeni starter
+kitom i nisu zahtevani drugi put.
+
+---
+
+## D-004: Fail-closed read-only zaštita (`EtoroWriteGuard`)
+
+**Datum:** 2026-07-30
+**Status:** zahtev vlasnika projekta
+
+**Kontekst:** PROJECT.md §2 i §17 — aplikacija je read-only by design;
+`ETORO_ALLOW_WRITE` mora podrazumevano biti `false`, a produkcija mora odbiti
+pokretanje trading servisa ako flag nije false tokom MVP-a.
+
+**Odluka:** `App\Etoro\EtoroWriteGuard`:
+
+- `allowsWrite()` u MVP-u **uvek vraća `false`**, nezavisno od konfiguracije
+  (hard-coded fail-closed; write režim se ne može uključiti env promenljivom).
+- `ensureReadOnly()` baca `EtoroWriteModeNotAllowedException` ako je
+  `etoro.allow_write` konfigurisan na `true` — poziva se pri boot-u aplikacije
+  (`AppServiceProvider::boot()`), tako da pogrešna konfiguracija obara
+  aplikaciju umesto da tiho prođe.
+
+**Razmatrane alternative:** samo prikaz `config('etoro.allow_write')` na
+dashboardu (odbijeno — nije zaštita); provera samo u produkcijskom okruženju
+(odbijeno — fail-closed treba da važi svuda tokom MVP-a).
+
+---
+
+## D-005: Arch test ograničen na eToro namespace
+
+**Datum:** 2026-07-30
+**Status:** zahtev vlasnika projekta
+
+Test koji dokazuje odsustvo write metoda ne skenira ceo `app/` (aplikacija
+legitimno sme da ima sopstvene POST/PUT/DELETE operacije), već refleksijom
+proverava isključivo klase u `App\Etoro` namespace-u protiv eksplicitne liste
+zabranjenih naziva metoda (`post`, `put`, `patch`, `delete`, `executeOrder`,
+`startCopying`, `stopCopying`, `openPosition`, `closePosition`, `deposit`,
+`withdraw`, `transfer`...). Grep po izvornom kodu je odbijen kao krhak
+(false positives).
+
+---
+
+## D-006: Bez `pest-plugin-livewire`; widget testovi kroz `Livewire::test()`
+
+**Datum:** 2026-07-30
+
+Helper `Pest\Livewire\livewire()` zahteva dodatni paket `pestphp/pest-plugin-livewire`.
+Pošto važi pravilo „bez novih paketa bez odobrenja", a `livewire/livewire` već
+nudi ekvivalentan `Livewire::test()`, testovi koriste ugrađeni API. Plugin se
+može dodati kasnije ako se pokaže potreban.
+
+---
+
+## D-007: `ReadOnlyModeWidget` nije lazy; `User` implementira `FilamentUser`
+
+**Datum:** 2026-07-30
+
+- Filament widgeti se podrazumevano učitavaju lazy; bezbednosni baner
+  read-only režima mora biti vidljiv odmah u inicijalnom HTML-u, pa je
+  `$isLazy = false` (ovo omogućava i pouzdan `assertSee` test dashboarda).
+- `App\Models\User` implementira `Filament\Models\Contracts\FilamentUser` sa
+  `canAccessPanel(): true` — single-user aplikacija bez javne registracije;
+  bez ovog ugovora Filament u produkciji odbija sve korisnike (403).
+
+---
+
+## D-008: eToro ključevi nisu per-environment; `ETORO_ENVIRONMENT` bira samo endpoint
+
+**Datum:** 2026-07-30
+**Status:** korekcija pretpostavke iz PROJECT.md, na osnovu stvarnog UI-ja
+
+**Kontekst:** Javna eToro dokumentacija još uvek opisuje poseban Demo/Real
+izbor pri generisanju API ključa. Stvarni, trenutni Key Management UI to ne
+nudi — **trenutni UI odstupa od javne dokumentacije**.
+
+**Utvrđeno stanje (bez vrednosti ključeva):**
+
+- Ključ se kreira za izabrani Account („Main Account“), bez Demo/Real izbora.
+- Dozvole se biraju pojedinačno; ključ u upotrebi ima 16 read dozvola.
+- „Trading – Real · Read“ je uključena; „Trading – Real · Write“ NIJE uključena
+  i mora tako ostati.
+- Mapiranje kredencijala: Public Key → `ETORO_API_KEY` → `x-api-key`;
+  generisani Private Key → `ETORO_USER_KEY` → `x-user-key`.
+- `ETORO_BEARER_TOKEN` ostaje prazan; `Authorization: Bearer` header se ne šalje.
+  *(Prevaziđeno u D-009: promenljiva je potpuno uklonjena.)*
+
+**Odluka:**
+
+- `ETORO_ENVIRONMENT` se NE tretira kao osobina ili ograničenje ključa, već
+  isključivo kao izbor account endpointa aplikacije:
+  `real` → `/api/v1/trading/info/real/...`, `demo` → `/api/v1/trading/info/demo/...`.
+  Lokalno je trenutno podešen `real`.
+- Tokom Milestone 1 dostupnost OBA P&L endpointa se proverava read-only GET
+  zahtevima i u capability report se upisuje stvarni rezultat za svaki
+  (`real`/`demo`: available / forbidden / unavailable). Dostupnost se ne
+  pretpostavlja iz dokumentacije niti iz naziva/načina generisanja ključa.
+
+**Posledice:** PROJECT.md §3, §5, §8, §20 (Milestone 1) i §24 ažurirani
+2026-07-30 u skladu sa ovim.
+
+---
+
+## D-009: Bearer autentikacija se ne implementira; `ETORO_BEARER_TOKEN` uklonjen
+
+**Datum:** 2026-07-30
+**Status:** zahtev vlasnika projekta; delimično prevazilazi D-008
+
+**Odluka:**
+
+- `ETORO_BEARER_TOKEN` je uklonjen iz `.env.example`, `config/etoro.php` i
+  PROJECT.md — promenljiva više ne postoji.
+- `Authorization: Bearer` header se ne implementira i ne šalje.
+- Standardna autentikacija koristi isključivo headere: `x-api-key`,
+  `x-user-key` i `x-request-id` (jedinstveni UUID po zahtevu).
+- Bearer autentikacija se može dodati kasnije SAMO ako stvarni zvanični
+  OpenAPI dokument za konkretan endpoint eksplicitno pokaže da je potrebna.
+- Test `defines no bearer token configuration` garantuje da se promenljiva
+  ne vrati slučajno.
+
+`ETORO_ENVIRONMENT=demo` ostaje bezbedan default u `.env.example`; lokalni
+`.env` vlasnika koristi `real` (lokalni `.env` se ne čita i ne menja).
+
+---
