@@ -237,3 +237,152 @@ Izmenjeni/obrisani fajlovi u ovom koraku:
 je i traženo. Commit čeka eksplicitno odobrenje vlasnika projekta.
 
 ---
+
+## 2026-07-30 — Milestone 1: planiranje i istraživanje dokumentacije
+
+Prebačen fokus na granu `milestone/1-etoro-api-spike`. Pre pisanja plana:
+
+- Pročitani PROJECT.md, README.md, docs/DECISIONS.md, docs/WORKLOG.md,
+  docs/REVIEW_STATUS.md u celosti.
+- Registrovan MCP server `etoro-public-api` (`claude mcp add --transport
+  http etoro-public-api https://mcp.public-api.etoro.com`) — alati nisu
+  postali dostupni u već pokrenutoj sesiji (potreban restart), pa je
+  istraživanje umesto toga urađeno preko `WebFetch` nad zvaničnim
+  `api-portal.etoro.com` i `mcp.public-api.etoro.com/skill` stranicama.
+- Potvrđena stvarna interna nekonzistentnost eToro dokumentacije o
+  autentikaciji (Bearer vs. samo x-api-key/x-user-key) — vidi DECISIONS.md
+  D-013.
+- Predstavljen implementacioni plan (klase, komanda, endpoint tabela,
+  eksperiment autentikacije, sanitizacija fixtures, test plan, greške/rate
+  limit, fajlovi, format capability report-a) — vlasnik projekta odobrio uz
+  7 korekcija (manje exception klasa, generički transport rezultat umesto
+  DTO-ova, opt-in raw capture, ručno odobrenje fixtures, bez rate-limitera,
+  testiranje `--live` putem `Http::fake()`, MCP registracija ostaje).
+
+## 2026-07-30 — Milestone 1: implementacija (do pred prvi živi poziv)
+
+Komande:
+
+```bash
+php artisan test --compact       # 49 passed, 148 assertions
+vendor/bin/pint --format agent   # passed
+vendor/bin/phpstan analyse       # 0 errors
+php artisan list etoro           # etoro:doctor registrovana
+php artisan etoro:doctor         # lokalna provera konfiguracije (bez mreže)
+```
+
+Novi fajlovi:
+
+- `app/Etoro/EtoroErrorCategory.php`, `CapabilityStatus.php`,
+  `EtoroEnvironment.php`, `RankingQuery.php`, `EtoroApiResponse.php`,
+  `EtoroClient.php`
+- `app/Etoro/Exceptions/{EtoroConfigurationException,EtoroRequestException,
+  EtoroUnexpectedResponseException}.php`
+- `app/Console/Commands/EtoroDoctorCommand.php`
+- `tests/Feature/Etoro/EtoroClientTest.php`
+- `tests/Feature/Console/EtoroDoctorCommandTest.php`
+
+Izmenjeni fajlovi:
+
+- `config/etoro.php`, `.env.example`, `PROJECT.md` — `ETORO_STORE_RAW_RESPONSES`
+  podrazumevano `false`
+- `tests/Feature/Etoro/ReadOnlySafetyTest.php` — dodat test da je
+  `store_raw_responses` default `false` (proveren kroz izvorni kod
+  `config/etoro.php`, ne kroz živi `config()`, jer lokalni `.env` vlasnika
+  već eksplicitno postavlja tu vrednost na `true` — vidi napomenu ispod);
+  ažuriran `.env.example` dataset test na tačan string
+  `ETORO_STORE_RAW_RESPONSES=false` (isti obrazac kao za `ETORO_ALLOW_WRITE`)
+
+### Greške i rešenja tokom rada
+
+1. Test koji je proveravao `config('etoro.store_raw_responses')` je pao —
+   lokalni `.env` vlasnika projekta već sadrži `ETORO_STORE_RAW_RESPONSES=true`
+   (verovatno iz perioda pre ove izmene default vrednosti). Pošto se lokalni
+   `.env` ne čita/ne menja, test je prepravljen da proverava izvorni kod
+   `config/etoro.php` (literalni `env('ETORO_STORE_RAW_RESPONSES', false)`),
+   isto kao što `.env.example`-test već proverava dokumentovani default.
+2. `$this->artisan(...)->run()` u Pest testovima ne popunjava `Artisan::output()`
+   (Laravel-ov `PendingCommand::run()` prosleđuje sopstveni Mockery-mock
+   `BufferedOutput` koji "guta" pozive bez `expectsOutputToContain()`
+   deklaracija). Rešeno korišćenjem `Artisan::call(...)` + `Artisan::output()`
+   za dva testa koja moraju da pretraže pun tekst izlaza (bez
+   full-payload/PII/kredencijala).
+3. Vizuelni "artefakt" u terminalu (tačke-punjenje u `checkConfiguration()`
+   izgledale su skraćene u ispisu alata) ispostavio se kao prikaz-only
+   pojava — programska provera (`strlen`, `bin2hex`) potvrdila da je stvarni
+   string ispravan; nikakva izmena koda nije bila potrebna.
+
+### Rezultati
+
+- `php artisan test`: **49 passed (148 assertions)** — 0 failures
+- `vendor/bin/pint`: prošao
+- `vendor/bin/phpstan analyse` (level 7): **0 errors**
+- `php artisan etoro:doctor` (bez `--live`): čita lokalni `.env` vlasnika i
+  ispravno prijavljuje ENABLED/present/present/BLOCKED/real, bez ijednog
+  mrežnog poziva i bez prikaza vrednosti ključeva.
+
+**Live poziv (`php artisan etoro:doctor --live`) NIJE izvršen.** Čeka se
+posebno, eksplicitno odobrenje vlasnika projekta pre bilo kog stvarnog
+zahteva ka `public-api.etoro.com`.
+
+---
+
+## 2026-07-30 — Milestone 1: korekcije posle code review-a (pre live poziva)
+
+Vlasnik projekta je pregledao kod i tražio 6 ispravki pre prvog živog poziva.
+Sve primenjene, bez commit-a i bez ijednog stvarnog API poziva. Detaljno
+obrazloženje svake tačke: `docs/DECISIONS.md` D-015.
+
+### Komande
+
+```bash
+php artisan test --compact       # 58 passed, 168 assertions
+vendor/bin/pint --format agent   # passed
+vendor/bin/phpstan analyse       # 0 errors
+```
+
+### Izmenjeni fajlovi
+
+- `app/Etoro/EtoroClient.php` — `usernames` query kao scalar (potvrđeno
+  ponovnim uvidom u OpenAPI: `explode: false`); `pathSegment()`/
+  `assertUsernameProvided()` za `userPerformance`/`userLivePortfolio`/
+  `userProfile`; svež UUID po pokušaju unutar retry petlje;
+  `withOptions(['allow_redirects' => false])`; 3xx → `EtoroUnexpectedResponseException`
+- `app/Etoro/Exceptions/EtoroRequestException.php` — dodati
+  `rateLimitLimit`/`rateLimitRemaining`
+- `app/Console/Commands/EtoroDoctorCommand.php` — `executeProbe(...,
+  accountLevel: bool)` za kontekstualnu 403 klasifikaciju; tabela dobija
+  kolone Request ID / RateLimit-Limit / RateLimit-Remaining / Retry-After
+- `tests/Feature/Etoro/EtoroClientTest.php` — novi testovi: tačan query
+  string, path-segment enkodiranje sa specijalnim karakterima, odbijanje
+  blank username-a, svež request-id po fizičkom pokušaju (2×503+1×200 → 3
+  zahteva, 3 različita ID-a), redirect ka drugom domenu (1 zahtev, drugi
+  domen nikad pozvan, bez Location u poruci)
+- `tests/Feature/Console/EtoroDoctorCommandTest.php` — novi testovi za
+  kontekstualnu 403 klasifikaciju i prikaz request ID-a/rate-limit
+  metapodataka; dodata `callEtoroDoctor()` pomoćna funkcija
+
+### Greške i rešenja tokom rada
+
+1. `Artisan::call()` + `Artisan::output()` je pisao u pravi STDOUT tokom
+   testova → PHPUnit "risky: printed unexpected output" upozorenje. Rešeno
+   prosleđivanjem eksplicitnog `Symfony\Component\Console\Output\BufferedOutput`
+   kao trećeg argumenta `Artisan::call()`, čitanjem teksta preko
+   `$buffer->fetch()`.
+2. Test suite pokazuje jedno (1) upozorenje bez detalja
+   (`warning_details: []`); provereno da se reprodukuje i sa izolovanim,
+   trivijalnim testom nepovezanim sa Etoro kodom (pa i sa postojećim,
+   nedirnutim `DashboardTest.php`) — zaključak: preduslovno/okruženje-nivo
+   upozorenje (verovatno PHP 8.5 deprecation notice iz nekog paketa), nije
+   izazvano ovim izmenama, ne utiče na prolaznost testova.
+
+### Rezultati
+
+- `php artisan test`: **58 passed (168 assertions)** — 0 failures (1
+  preduslovno, nepovezano upozorenje bez detalja)
+- `vendor/bin/pint`: prošao
+- `vendor/bin/phpstan analyse` (level 7): 0 errors
+
+**Live poziv i dalje NIJE izvršen.** Čeka posebno, eksplicitno odobrenje.
+
+---

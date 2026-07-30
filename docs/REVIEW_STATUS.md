@@ -1,65 +1,98 @@
 # REVIEW_STATUS — TradeLedger
 
-**Trenutni milestone:** Milestone 0 — Scaffold
-**Status:** ZAVRŠEN — prihvaćen od vlasnika projekta 2026-07-30; code review
-korekcije primenjene 2026-07-30 (commit čeka odobrenje)
+**Trenutni milestone:** Milestone 1 — API spike i fixtures
+**Status:** kod implementiran, testiran i ispravljen po code review-u; čeka
+eksplicitno odobrenje za prvi živi API poziv (`php artisan etoro:doctor --live`)
 **Poslednje ažuriranje:** 2026-07-30
 
-## Ispunjeni kriterijumi prihvatanja
+## Ispunjeni kriterijumi prihvatanja (do pred live poziv)
 
-- [x] Laravel 13 aplikacija (v13.23.0)
-- [x] Filament 5 admin panel (v5.7.4) sa lokalnom login autentifikacijom,
-      bez javne registracije
-- [x] Livewire 4 (v4.3.3)
-- [x] Pest (v5.0.2)
-- [x] Laravel Boost (v2.4.13, već instaliran — nije reinstaliran)
-- [x] MySQL konfiguracija u `.env.example` (`DB_CONNECTION=mysql`,
-      `DB_DATABASE=trade_ledger`)
-- [x] `config/etoro.php` sa svim dokumentovanim ključevima (bez bearer tokena — D-009)
-- [x] Sve `ETORO_*` promenljive u `.env.example`; `ETORO_ALLOW_WRITE=false`;
-      `ETORO_ENABLED=false` podrazumevano (D-012); `ETORO_BEARER_TOKEN`
-      uklonjen (autentikacija: `x-api-key`, `x-user-key`, `x-request-id`)
-- [x] Fail-closed `EtoroWriteGuard` + boot provera u `AppServiceProvider`
-- [x] Testovi: default false, flag=true aktivira zaštitu, dashboard prikazuje
-      read-only stanje, eToro sloj nema write metode (reflection scan,
-      dozvoljen privatni `request()` helper — D-011)
-- [x] Dashboard widget „Read-only analytics mode" (nije lazy, uvek vidljiv)
-- [x] `php artisan test`: 21 passed / 40 assertions (starter ExampleTest
-      fajlovi obrisani — D-012)
+- [x] `EtoroClient` — isključivo GET, typed javne metode (authenticatedUser,
+      rankings, userProfile, userPerformance, userLivePortfolio, accountPnl),
+      privatni GET-only helper, bez `Authorization` header-a
+- [x] Tri exception klase (`EtoroConfigurationException`,
+      `EtoroRequestException` s kategorijom/status/requestId/Retry-After,
+      `EtoroUnexpectedResponseException`) — bez klase po HTTP statusu
+- [x] Generički transport rezultat `EtoroApiResponse` (payload, status,
+      requestId, durationMs, rateLimitHeaders) — bez pretpostavljenih DTO
+      polja pre live probe
+- [x] `php artisan etoro:doctor` — bez `--live` samo lokalna provera
+      konfiguracije (bez mrežnog poziva); sa `--live` izvršava svih 7 proba
+      sekvencijalno (~1s pauza, produžena po `Retry-After` do 60s)
+- [x] `--capture-raw` opt-in flag za čuvanje sirovih odgovora u
+      `storage/app/private/etoro/raw` (git-ignorisano); bez flag-a se ništa
+      ne čuva; komanda upozorava na lične/finansijske podatke
+- [x] `ETORO_STORE_RAW_RESPONSES` podrazumevano `false` (config + .env.example)
+- [x] Auto-selekcija public trader username-a iz prvog `type === 'trader'`
+      reda uspešnog rankings odgovora; bez hardkodovanog username-a u kodu;
+      `--username=` override dostupan
+- [x] Neuspešan rankings ispravno preskače probe #3–5, P&L probe #6/#7 se
+      uvek oba izvršavaju nezavisno od `ETORO_ENVIRONMENT`
+- [x] Sanitizovan terminalski izlaz — samo nazivi polja/broj stavki, nikad
+      vrednosti (username, imena, balansi, kredencijali)
+- [x] Bounded retry (max 3 pokušaja) sa backoff+jitter za 5xx/konekcione
+      greške; 400/401/403/404/429 se ne retry-uju automatski; 429 nosi
+      `Retry-After`
+- [x] Svi testovi offline kroz `Http::fake()` — uključujući `--live` code
+      path (7 proba, username selekcija, rankings-failure skip, oba P&L
+      poziva, bez Authorization header-a, bez PII/kredencijala u izlazu,
+      raw capture opt-in ponašanje)
+- [x] **Code review korekcije (D-015):** `usernames` query kao scalar
+      (potvrđeno OpenAPI `explode:false`); username kao URL path segment
+      zaštićen `rawurlencode()` + odbijanje blank vrednosti; svež
+      `x-request-id` po fizičkom HTTP pokušaju (ne po logičkom pozivu);
+      `allow_redirects=false` + 3xx → `EtoroUnexpectedResponseException`
+      (bez ikad čitanja `Location` vrednosti); kontekstualna 403
+      klasifikacija (`requires_additional_scope` za account-level probe,
+      `private_or_visibility_dependent` za public-trader probe); tabela
+      prikazuje Request ID i rate-limit metapodatke (Limit/Remaining/
+      Retry-After), nikad credential/payload vrednosti
+- [x] `php artisan test`: 58 passed / 168 assertions
 - [x] `vendor/bin/pint`: prošao
-- [x] `vendor/bin/phpstan analyse` (Larastan): 0 errors
-- [x] Git repo inicijalizovan, prvi commit napravljen i push-ovan na
-      `git@github.com:jyllson/trade-ledger.git` (grana `main`)
-- [x] CI (`.github/workflows/tests.yml`) koristi SQLite tokom Setup
-      Application koraka umesto nedostupnog MySQL-a (D-010)
-- [x] Composer package identity (`jyllson/trade-ledger`), README.md sa
-      upozorenjem o API ključevima (D-012)
-- [x] Bez poziva ka eToro API-ju; bez spekulativnih trader/portfolio migracija
+- [x] `vendor/bin/phpstan analyse` (level 7): 0 errors
+- [x] Bez migracija, Eloquent modela, Filament resursa za eToro podatke
+- [x] Bez pokušaja Bearer/OAuth; dokumentovana nekonzistentnost zvanične
+      dokumentacije o autentikaciji (DECISIONS.md D-013)
+- [x] MCP `etoro-public-api` registrovan u lokalnoj Claude konfiguraciji
+      (ostaje po zahtevu vlasnika, ne utiče na projekat)
 
 ## Neispunjeni kriterijumi prihvatanja
 
-- (nema — Milestone 0 prihvaćen; code review korekcije primenjene)
+- [ ] **Live poziv nije izvršen.** `php artisan etoro:doctor --live` čeka
+      posebno, eksplicitno odobrenje vlasnika projekta.
+- [ ] `docs/ETORO_API_CAPABILITIES.md` — pisaće se nakon live poziva, na
+      osnovu stvarnih rezultata
+- [ ] Sanitizovani fixtures u `tests/Fixtures/Etoro/` — prave se tek nakon
+      live poziva, uz prikaz tačne redakcije vlasniku na odobrenje pre commit-a
+- [ ] Commit code-a — čeka eksplicitno odobrenje (posebno od odobrenja za
+      live poziv)
 
 ## Poznati problemi
 
-- Lokalni MySQL server je 9.7.1; ciljana kompatibilnost aplikacije je
-  MySQL 8.4+ (DECISIONS.md D-001). Poseban MySQL 8.4 integration CI job
-  ostavljen za kasnije, kada aplikacija dobije sopstvene migracije (D-010).
-- Lokalni `.env` nije menjan (bezbednosno pravilo). Za lokalno pokretanje
-  korisnik ručno podešava: `APP_NAME=TradeLedger`, `DB_CONNECTION=mysql`,
-  `DB_HOST=127.0.0.1`, `DB_PORT=3306`, `DB_DATABASE=trade_ledger`,
-  `DB_USERNAME`/`DB_PASSWORD`, i ceo `ETORO_*` blok iz `.env.example`
-  (ključeve bez vrednosti popunjava sam; `ETORO_ALLOW_WRITE` ostaje `false`;
-  `ETORO_ENABLED` uključuje ručno tek na početku Milestone 1).
-  Zatim: kreirati bazu `trade_ledger`, `php artisan migrate`,
-  `php artisan make:filament-user`.
-- Commit sa code review korekcijama još nije napravljen — čeka eksplicitno
-  odobrenje vlasnika projekta (upute: ne pravi commit bez odobrenja).
+- Lokalni `.env` vlasnika već ima `ETORO_ENABLED=true`,
+  `ETORO_ENVIRONMENT=real`, i postavljene `ETORO_API_KEY`/`ETORO_USER_KEY`
+  (potvrđeno indirektno kroz izlaz `php artisan etoro:doctor` bez ijedne
+  prikazane vrednosti ključa) — spreman za live probu čim se odobri.
+- Lokalni `.env` takođe ima `ETORO_STORE_RAW_RESPONSES=true` (verovatno
+  zaostalo od pre promene bezbednog default-a) — nebitno za `etoro:doctor`,
+  jer njegovo `--capture-raw` ponašanje zavisi isključivo od CLI flag-a, ne
+  od tog config ključa (namerna odluka, DECISIONS.md D-014).
+- Klasifikacija 403 je sada kontekstualna (account-level vs. public-trader
+  probe, DECISIONS.md D-015 tačka 5), ali je i dalje prva razumna
+  pretpostavka zasnovana na HTTP statusu, ne na uvidu u stvarni payload;
+  može se prilagoditi nakon uvida u stvarne odgovore.
+- Test suite prijavljuje jedno (1) upozorenje bez detalja koje se
+  reprodukuje i sa trivijalnim, nepovezanim testom — preduslovno/okruženje-
+  nivo, ne izazvano ovim izmenama, ne utiče na prolaznost (DECISIONS.md
+  D-015, napomena na kraju).
+- Dokumentacija je interno nekonzistentna po pitanju Authorization/Bearer
+  header-a (DECISIONS.md D-013) — razrešava se isključivo empirijski, živim
+  pozivom.
 
 ## Sledeći preporučeni korak
 
-Vlasnik projekta odobrava commit code review korekcija. Zatim sledi
-**Milestone 1 — API spike i fixtures**: EtoroClient (read-only, GET-only),
-`etoro:doctor`, provera dostupnosti oba P&L endpointa (real/demo) stvarnim
-GET zahtevima, sanitizovani fixtures, `docs/ETORO_API_CAPABILITIES.md`.
-**Ne počinje bez posebnog, eksplicitnog odobrenja vlasnika projekta.**
+Vlasnik projekta eksplicitno odobrava `php artisan etoro:doctor --live`.
+Nakon toga: pregled sanitizovanog izlaza, eventualno `--capture-raw` za
+dijagnostiku, ručna izrada sanitizovanih fixtures uz odobrenje vlasnika pre
+commit-a, i pisanje `docs/ETORO_API_CAPABILITIES.md` na osnovu stvarnih
+rezultata. **Ne izvršavati live poziv bez te eksplicitne potvrde.**
