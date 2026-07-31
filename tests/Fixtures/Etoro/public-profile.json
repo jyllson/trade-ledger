@@ -1,0 +1,67 @@
+{
+    "users": [
+        {
+            "gcid": 100001,
+            "realCID": 200001,
+            "demoCID": 200002,
+            "username": "trader_001",
+            "firstName": "Demo",
+            "middleName": null,
+            "lastName": "TraderOne",
+            "language": 1,
+            "languageIsoCode": "en-US",
+            "country": 1,
+            "allowDisplayFullName": true,
+            "aboutMe": "This is a synthetic fixture biography used for testing only.",
+            "aboutMeShort": "Synthetic fixture bio.",
+            "userBio": {
+                "gcid": 100001,
+                "aboutMe": "Synthetic fixture bio for userBio.",
+                "aboutMeShort": "Synthetic short bio.",
+                "languageCode": "en",
+                "strategyID": 800001
+            },
+            "whiteLabel": 1,
+            "optOut": false,
+            "homepage": null,
+            "playerStatus": null,
+            "piLevel": 3,
+            "isPi": true,
+            "avatars": [
+                {
+                    "url": "https://example.invalid/avatar-001-35x35.png",
+                    "width": 35,
+                    "height": 35,
+                    "type": "Original"
+                },
+                {
+                    "url": "https://example.invalid/avatar-001-50x50.png",
+                    "width": 50,
+                    "height": 50,
+                    "type": "OriginalCropped"
+                },
+                {
+                    "url": "https://example.invalid/avatar-001-150x150.png",
+                    "width": 150,
+                    "height": 150,
+                    "type": "Resized"
+                },
+                {
+                    "url": "https://example.invalid/avatar-001-300x300.png",
+                    "width": 300,
+                    "height": 300,
+                    "type": "Retouched"
+                }
+            ],
+            "masterAccountCid": null,
+            "accountType": 1,
+            "fundType": null,
+            "isVerified": true,
+            "verificationLevel": 3,
+            "accountStatus": 1,
+            "gdprInfo": null,
+            "userFlowSignature": "SYNTHETIC_SIGNATURE_PLACEHOLDER_0000000000000000000000000000",
+            "customerRestrictions": null
+        }
+    ]
+}

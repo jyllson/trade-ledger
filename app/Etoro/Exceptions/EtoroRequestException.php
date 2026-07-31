@@ -8,7 +8,8 @@ use RuntimeException;
 /**
  * A single exception type for all HTTP-level eToro request failures
  * (4xx/5xx, unexpected redirects, and connection failures). Carries only
- * sanitized metadata — never credentials, never the response payload.
+ * sanitized metadata — never credentials, never the response payload, and
+ * never the original transport exception message.
  */
 class EtoroRequestException extends RuntimeException
 {
@@ -20,6 +21,11 @@ class EtoroRequestException extends RuntimeException
         public readonly ?int $retryAfterSeconds = null,
         public readonly ?string $rateLimitLimit = null,
         public readonly ?string $rateLimitRemaining = null,
+        public readonly ?string $transportReason = null,
+        public readonly ?int $transportErrno = null,
+        public readonly int $attemptCount = 1,
+        public readonly ?float $totalDurationMs = null,
+        public readonly ?float $finalAttemptDurationMs = null,
     ) {
         parent::__construct($message);
     }
@@ -31,6 +37,9 @@ class EtoroRequestException extends RuntimeException
         ?int $retryAfterSeconds = null,
         ?string $rateLimitLimit = null,
         ?string $rateLimitRemaining = null,
+        int $attemptCount = 1,
+        ?float $totalDurationMs = null,
+        ?float $finalAttemptDurationMs = null,
     ): self {
         return new self(
             "eToro request failed: {$category->value} (HTTP {$httpStatus}).",
@@ -40,16 +49,35 @@ class EtoroRequestException extends RuntimeException
             $retryAfterSeconds,
             $rateLimitLimit,
             $rateLimitRemaining,
+            attemptCount: $attemptCount,
+            totalDurationMs: $totalDurationMs,
+            finalAttemptDurationMs: $finalAttemptDurationMs,
         );
     }
 
-    public static function connectionFailed(?string $requestId): self
-    {
+    /**
+     * $transportReason is a normalized, pre-approved category (never the
+     * original exception message, URL, payload, or credentials) — see
+     * EtoroClient::diagnoseTransportFailure().
+     */
+    public static function connectionFailed(
+        ?string $requestId,
+        string $transportReason,
+        ?int $transportErrno = null,
+        int $attemptCount = 1,
+        ?float $totalDurationMs = null,
+        ?float $finalAttemptDurationMs = null,
+    ): self {
         return new self(
-            'eToro request failed: connection error after retries.',
+            "eToro request failed: connection error after retries ({$transportReason}).",
             EtoroErrorCategory::ConnectionFailed,
             null,
             $requestId,
+            transportReason: $transportReason,
+            transportErrno: $transportErrno,
+            attemptCount: $attemptCount,
+            totalDurationMs: $totalDurationMs,
+            finalAttemptDurationMs: $finalAttemptDurationMs,
         );
     }
 }

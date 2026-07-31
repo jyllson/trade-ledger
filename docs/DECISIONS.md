@@ -400,3 +400,76 @@ nepovezanim testom — potvrđeno da je preduslovno/okruženje-nivo, ne izazvano
 ovim izmenama, i ne utiče na prolaznost (0 failures).
 
 ---
+
+## D-016: Retry dijagnostika, double opt-in raw capture, potvrda .gitignore-a (nakon Run #2)
+
+**Datum:** 2026-07-31
+**Status:** zahtev vlasnika projekta, primenjeno pre selektivnog raw capture-a
+
+### 1. Trader live portfolio → `works`
+
+Nakon Run #2 (ciljana `--only=live-portfolio` proba, HTTP 200,
+`realizedCreditPct/unrealizedCreditPct/positions[]/socialTrades[]`), endpoint
+je potvrđen kao radna capability. Run #1 klasifikacija
+(`temporarily_unavailable`) je bila privremena transportna smetnja, ne
+sistemski problem — dokumentovano u `docs/ETORO_API_CAPABILITIES.md` sa oba
+run-a i eksplicitnim zaključkom, bez request ID-jeva/identiteta/vrednosti.
+
+### 2. Retry dijagnostika (`attemptCount`, `totalDurationMs`,
+`finalAttemptDurationMs`)
+
+`EtoroApiResponse` i `EtoroRequestException` nose broj fizičkih pokušaja i
+trajanje (ukupno i samo poslednji pokušaj). `EtoroClient::get()` generiše
+`x-request-id` i mери trajanje po pokušaju unutar `for` petlje;
+`EtoroDoctorCommand` prikazuje tri nove kolone (`Attempts`, `Total
+Duration`, `Final Attempt Duration`) i, kada uspešan odgovor stigne posle
+više od jednog pokušaja, dodaje sanitizovanu napomenu `recovered_after_retry`
+ispred postojeće šeme polja — nikad originalnu poruku ili URL.
+
+**Nalaz tokom testiranja:** `Http::fake()` evidentira u `Http::recorded()`/
+`assertSentCount()` samo pokušaje koji rezultuju stvarnim odgovorom — ako
+fake closure baci exception (simulacija `ConnectionException`), taj pokušaj
+se NE broji u `Http::recorded()`. Test koji simulira
+timeout→503→200 zato hvata `x-request-id` direktno iz closure-a (koji se
+izvršava na sva 3 poziva, bez obzira da li zatim baca ili vraća odgovor),
+umesto da se osloni na `Http::recorded()`.
+
+### 3. Double opt-in raw capture
+
+Ranije je `--capture-raw` sam bio dovoljan da omogući čuvanje sirovih
+odgovora (D-014). Sada su potrebna OBA uslova istovremeno:
+`ETORO_STORE_RAW_RESPONSES=true` u konfiguraciji I `--capture-raw` flag.
+Ponašanje:
+
+- config `false` + bez flag-a → ništa se ne čuva (kao i pre);
+- config `false` + flag → **kontrolisana greška** ("capture nije omogućen u
+  konfiguraciji"), komanda se prekida PRE bilo kog mrežnog poziva — biran
+  fail-loudly pristup umesto tihog ignorisanja, da korisnik ne pretpostavi
+  da se capture dešava kad se ne dešava;
+- config `true` + bez flag-a → ništa se ne čuva (flag je per-run okidač);
+- config `true` + flag → čuvanje dozvoljeno, isključivo u
+  `storage/app/private` (već git-ignorisano).
+
+Provera se radi na dva mesta (u `handle()` pre pokretanja proba, i ponovo
+unutar `executeProbe()` pre stvarnog upisa) — defense-in-depth, ne oslanja se
+samo na raniju validaciju. Lokalni `.env` nije menjan ni čitan ni u ovom
+koraku.
+
+### 4. Potvrda `.gitignore` pokrivenosti i otkriven gotcha
+
+`storage/app/private/etoro/raw/*` je već potpuno pokriven postojećim
+`storage/app/private/.gitignore` (`*` + `!.gitignore`) — potvrđeno pomoću
+`git check-ignore` (exit 0). **Pokušaj dodavanja eksplicitnog, ugnježdenog
+`storage/app/private/etoro/.gitignore`** radi jasnoće je napravljen i zatim
+**uklonjen** kada se ispostavilo da je git-ov poznati limit relevantan:
+kada roditeljski `.gitignore` isključi čitav direktorijum (`*` isključuje i
+sam `etoro/` direktorijum kao jedinicu), git ne silazi u njega da primeni
+dodatne pravila iz ugnježdenog `.gitignore` fajla — taj fajl bi bio potpuno
+neviljiv/netrackovan od strane git-a (paradoksalno, sam `.gitignore` fajl
+biva ignorisan). Zaključak: blanket `*` na nivou `storage/app/private/` je
+i dovoljan i jedini praktičan način; dodatni nested `.gitignore` fajlovi
+unutar već isključenih direktorijuma ne rade. Dodat autoritativan test
+(`tests/Feature/Etoro/RawStorageGitignoreTest.php`) koji poziva stvarni
+`git check-ignore` da ovo trajno potvrdi.
+
+---

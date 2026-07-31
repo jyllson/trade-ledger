@@ -1,98 +1,107 @@
 # REVIEW_STATUS — TradeLedger
 
 **Trenutni milestone:** Milestone 1 — API spike i fixtures
-**Status:** kod implementiran, testiran i ispravljen po code review-u; čeka
-eksplicitno odobrenje za prvi živi API poziv (`php artisan etoro:doctor --live`)
-**Poslednje ažuriranje:** 2026-07-30
+**Status:** dve žive probe izvršene i prihvaćene (svih 7 capability-ja
+potvrđeno kao `works`/`available`); kod dopunjen retry dijagnostikom i
+double opt-in raw capture-om; čeka odobrenje za selektivni raw capture
+javnih trader podataka
+**Poslednje ažuriranje:** 2026-07-31
 
-## Ispunjeni kriterijumi prihvatanja (do pred live poziv)
+## Ispunjeni kriterijumi prihvatanja
 
 - [x] `EtoroClient` — isključivo GET, typed javne metode (authenticatedUser,
       rankings, userProfile, userPerformance, userLivePortfolio, accountPnl),
       privatni GET-only helper, bez `Authorization` header-a
 - [x] Tri exception klase (`EtoroConfigurationException`,
-      `EtoroRequestException` s kategorijom/status/requestId/Retry-After,
-      `EtoroUnexpectedResponseException`) — bez klase po HTTP statusu
+      `EtoroRequestException`, `EtoroUnexpectedResponseException`) — bez
+      klase po HTTP statusu; `EtoroRequestException` nosi kategoriju,
+      status, requestId, retryAfter, rate-limit metapodatke, transportnu
+      dijagnozu (D-015) i retry dijagnostiku (D-016)
 - [x] Generički transport rezultat `EtoroApiResponse` (payload, status,
-      requestId, durationMs, rateLimitHeaders) — bez pretpostavljenih DTO
-      polja pre live probe
+      requestId, `attemptCount`, `totalDurationMs`, `finalAttemptDurationMs`,
+      rateLimitHeaders) — bez pretpostavljenih DTO polja pre live probe
 - [x] `php artisan etoro:doctor` — bez `--live` samo lokalna provera
-      konfiguracije (bez mrežnog poziva); sa `--live` izvršava svih 7 proba
-      sekvencijalno (~1s pauza, produžena po `Retry-After` do 60s)
-- [x] `--capture-raw` opt-in flag za čuvanje sirovih odgovora u
-      `storage/app/private/etoro/raw` (git-ignorisano); bez flag-a se ništa
-      ne čuva; komanda upozorava na lične/finansijske podatke
-- [x] `ETORO_STORE_RAW_RESPONSES` podrazumevano `false` (config + .env.example)
+      konfiguracije; sa `--live` svih 7 proba ili, sa `--only=<capability>`,
+      tačno jedna (uz rankings-dependency samo kad je potrebna i
+      `--username` nije dat)
+- [x] Sanitizovana transportna dijagnostika — normalizovane kategorije
+      (`connect_timeout`, `request_timeout`, `dns_failure`, `tls_failure`,
+      `connection_reset`, `unknown_transport_failure`) iz curl
+      errno/connect_time, nikad originalna poruka/URL/payload
+- [x] Retry dijagnostika — `Attempts`, `Total Duration`, `Final Attempt
+      Duration` kolone; `recovered_after_retry` napomena kad uspeh stigne
+      posle > 1 pokušaja
+- [x] **Double opt-in raw capture** — potreban i `ETORO_STORE_RAW_RESPONSES=true`
+      U konfiguraciji I `--capture-raw` flag; config-only ili flag-only ne
+      čuva ništa; flag bez config dozvole → kontrolisana greška, bez
+      mrežnog poziva; oba → čuvanje isključivo u
+      `storage/app/private/etoro/raw`, autoritativno potvrđeno
+      git-ignorisano (`git check-ignore`, potvrđeno i testom)
 - [x] Auto-selekcija public trader username-a iz prvog `type === 'trader'`
       reda uspešnog rankings odgovora; bez hardkodovanog username-a u kodu;
       `--username=` override dostupan
-- [x] Neuspešan rankings ispravno preskače probe #3–5, P&L probe #6/#7 se
-      uvek oba izvršavaju nezavisno od `ETORO_ENVIRONMENT`
+- [x] Neuspešan rankings ispravno preskače username-zavisne probe; P&L probe
+      se uvek oba izvršavaju nezavisno od `ETORO_ENVIRONMENT`
 - [x] Sanitizovan terminalski izlaz — samo nazivi polja/broj stavki, nikad
       vrednosti (username, imena, balansi, kredencijali)
 - [x] Bounded retry (max 3 pokušaja) sa backoff+jitter za 5xx/konekcione
       greške; 400/401/403/404/429 se ne retry-uju automatski; 429 nosi
       `Retry-After`
-- [x] Svi testovi offline kroz `Http::fake()` — uključujući `--live` code
-      path (7 proba, username selekcija, rankings-failure skip, oba P&L
-      poziva, bez Authorization header-a, bez PII/kredencijala u izlazu,
-      raw capture opt-in ponašanje)
-- [x] **Code review korekcije (D-015):** `usernames` query kao scalar
-      (potvrđeno OpenAPI `explode:false`); username kao URL path segment
-      zaštićen `rawurlencode()` + odbijanje blank vrednosti; svež
-      `x-request-id` po fizičkom HTTP pokušaju (ne po logičkom pozivu);
-      `allow_redirects=false` + 3xx → `EtoroUnexpectedResponseException`
-      (bez ikad čitanja `Location` vrednosti); kontekstualna 403
-      klasifikacija (`requires_additional_scope` za account-level probe,
-      `private_or_visibility_dependent` za public-trader probe); tabela
-      prikazuje Request ID i rate-limit metapodatke (Limit/Remaining/
-      Retry-After), nikad credential/payload vrednosti
-- [x] `php artisan test`: 58 passed / 168 assertions
+- [x] Kontekstualna 403 klasifikacija (`requires_additional_scope` za
+      account-level probe, `private_or_visibility_dependent` za
+      public-trader probe)
+- [x] Svi testovi offline kroz `Http::fake()`/`Sleep::fake()` — uključujući
+      `--live` i `--only` code path-ove, double opt-in kombinacije (sve 4),
+      retry dijagnostiku, transportnu dijagnostiku, autoritativnu
+      `git check-ignore` proveru
+- [x] `php artisan test`: **78 passed / 237 assertions**
 - [x] `vendor/bin/pint`: prošao
 - [x] `vendor/bin/phpstan analyse` (level 7): 0 errors
 - [x] Bez migracija, Eloquent modela, Filament resursa za eToro podatke
-- [x] Bez pokušaja Bearer/OAuth; dokumentovana nekonzistentnost zvanične
-      dokumentacije o autentikaciji (DECISIONS.md D-013)
 - [x] MCP `etoro-public-api` registrovan u lokalnoj Claude konfiguraciji
       (ostaje po zahtevu vlasnika, ne utiče na projekat)
 
+### Rezultati živih proba
+
+- **Run #1** (`--live`, svih 7 proba): 6/7 `works`/`available` (HTTP 200),
+  bez 401/403/404/429/5xx, bez rate-limit header-a. Proba „Trader live
+  portfolio" → `temporarily_unavailable` (transport greška nakon bounded
+  retry-ja).
+- **Run #2** (`--live --only=live-portfolio`): **HTTP 200**. Zaključak:
+  Run #1 neuspeh je bio privremena transportna smetnja, ne sistemski
+  problem — endpoint je potvrđen kao `works`.
+- **Svih 7 capability-ja je sada potvrđeno kao radno** (`works`/`available`).
+  Detalji u `docs/ETORO_API_CAPABILITIES.md`.
+
 ## Neispunjeni kriterijumi prihvatanja
 
-- [ ] **Live poziv nije izvršen.** `php artisan etoro:doctor --live` čeka
-      posebno, eksplicitno odobrenje vlasnika projekta.
-- [ ] `docs/ETORO_API_CAPABILITIES.md` — pisaće se nakon live poziva, na
-      osnovu stvarnih rezultata
+- [ ] Selektivni raw capture (rankings, public profile, performance
+      history, live portfolio — bez `/me` i bez Real/Demo P&L) — čeka
+      eksplicitno odobrenje vlasnika projekta
 - [ ] Sanitizovani fixtures u `tests/Fixtures/Etoro/` — prave se tek nakon
-      live poziva, uz prikaz tačne redakcije vlasniku na odobrenje pre commit-a
-- [ ] Commit code-a — čeka eksplicitno odobrenje (posebno od odobrenja za
-      live poziv)
+      selektivnog raw capture-a, uz prikaz tačne redakcije vlasniku na
+      odobrenje pre commit-a
+- [ ] Commit i push code-a od ovog checkpoint-a — čeka eksplicitno
+      odobrenje
 
 ## Poznati problemi
 
-- Lokalni `.env` vlasnika već ima `ETORO_ENABLED=true`,
-  `ETORO_ENVIRONMENT=real`, i postavljene `ETORO_API_KEY`/`ETORO_USER_KEY`
-  (potvrđeno indirektno kroz izlaz `php artisan etoro:doctor` bez ijedne
-  prikazane vrednosti ključa) — spreman za live probu čim se odobri.
-- Lokalni `.env` takođe ima `ETORO_STORE_RAW_RESPONSES=true` (verovatno
-  zaostalo od pre promene bezbednog default-a) — nebitno za `etoro:doctor`,
-  jer njegovo `--capture-raw` ponašanje zavisi isključivo od CLI flag-a, ne
-  od tog config ključa (namerna odluka, DECISIONS.md D-014).
-- Klasifikacija 403 je sada kontekstualna (account-level vs. public-trader
-  probe, DECISIONS.md D-015 tačka 5), ali je i dalje prva razumna
-  pretpostavka zasnovana na HTTP statusu, ne na uvidu u stvarni payload;
-  može se prilagoditi nakon uvida u stvarne odgovore.
-- Test suite prijavljuje jedno (1) upozorenje bez detalja koje se
-  reprodukuje i sa trivijalnim, nepovezanim testom — preduslovno/okruženje-
-  nivo, ne izazvano ovim izmenama, ne utiče na prolaznost (DECISIONS.md
-  D-015, napomena na kraju).
+- Lokalni `.env` vlasnika ima `ETORO_ENABLED=true`, `ETORO_ENVIRONMENT=real`,
+  postavljene `ETORO_API_KEY`/`ETORO_USER_KEY`, i (od poslednje izmene
+  vlasnika) `ETORO_STORE_RAW_RESPONSES=false`. Lokalni `.env` se ne čita ni
+  ne menja od strane agenta.
+- Klasifikacija 403 je kontekstualna ali i dalje prva razumna pretpostavka
+  zasnovana na HTTP statusu, ne na uvidu u stvarni payload.
+- Test suite prijavljuje jedno (1) preduslovno/okruženje-nivo upozorenje bez
+  detalja, reprodukuje se i sa trivijalnim nepovezanim testom — ne utiče na
+  prolaznost.
 - Dokumentacija je interno nekonzistentna po pitanju Authorization/Bearer
-  header-a (DECISIONS.md D-013) — razrešava se isključivo empirijski, živim
-  pozivom.
+  header-a (DECISIONS.md D-013) — u praksi razrešeno za sve testirane
+  endpointe: nijedan nije zahtevao Bearer.
 
 ## Sledeći preporučeni korak
 
-Vlasnik projekta eksplicitno odobrava `php artisan etoro:doctor --live`.
-Nakon toga: pregled sanitizovanog izlaza, eventualno `--capture-raw` za
-dijagnostiku, ručna izrada sanitizovanih fixtures uz odobrenje vlasnika pre
-commit-a, i pisanje `docs/ETORO_API_CAPABILITIES.md` na osnovu stvarnih
-rezultata. **Ne izvršavati live poziv bez te eksplicitne potvrde.**
+Vlasnik projekta eksplicitno odobrava selektivni raw capture isključivo
+javnih trader podataka: rankings, public profile, performance history, live
+portfolio. **Bez `/me` i bez Real/Demo P&L payload-a.** Nakon capture-a:
+ručna sanitizacija i izrada fixtures uz odobrenje vlasnika pre commit-a.

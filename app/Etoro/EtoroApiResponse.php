@@ -17,7 +17,9 @@ final readonly class EtoroApiResponse
         public array $payload,
         public int $status,
         public string $requestId,
-        public float $durationMs,
+        public int $attemptCount,
+        public float $totalDurationMs,
+        public float $finalAttemptDurationMs,
         public array $rateLimitHeaders,
     ) {}
 }

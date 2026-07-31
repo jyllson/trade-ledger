@@ -1,5 +1,8 @@
 <?php
 
+use GuzzleHttp\Exception\ConnectException as GuzzleConnectException;
+use GuzzleHttp\Psr7\Request as GuzzleRequest;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
@@ -198,6 +201,48 @@ it('shows the request id and available rate-limit metadata for a probe, sanitize
         ->toContain('44');
 });
 
+it('shows attempt count, total duration, and final attempt duration columns in the sanitized table', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Http::fake(fakeEtoroResponses());
+
+    $output = callEtoroDoctor(['--live' => true]);
+
+    expect($output)
+        ->toContain('Attempts')
+        ->toContain('Total Duration')
+        ->toContain('Final Attempt Duration');
+});
+
+it('adds a recovered_after_retry note, without leaking the original transport message, when a probe succeeds after retrying', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+
+    $callCount = 0;
+    $responses = fakeEtoroResponses();
+    $responses['https://public-api.etoro.com/api/v1/me'] = function () use (&$callCount) {
+        $callCount++;
+
+        return match ($callCount) {
+            1 => throw new ConnectionException('SENTINEL_SHOULD_NOT_LEAK'),
+            default => Http::response(['gcid' => 111, 'scopes' => []], 200),
+        };
+    };
+    Http::fake($responses);
+
+    $output = callEtoroDoctor(['--live' => true]);
+
+    expect($output)
+        ->toContain('recovered_after_retry')
+        ->not->toContain('SENTINEL_SHOULD_NOT_LEAK');
+});
+
 it('never prints full payloads, personal data, or credential values to the console', function () {
     config([
         'etoro.enabled' => true,
@@ -222,26 +267,67 @@ it('never prints full payloads, personal data, or credential values to the conso
         ->toContain('works');
 });
 
-it('does not create any raw response file without --capture-raw', function () {
+// Raw capture is a double opt-in: ETORO_STORE_RAW_RESPONSES=true in config
+// AND --capture-raw must both be present. All four combinations below are
+// tested explicitly. The local .env is never read or modified — each test
+// sets the config value in isolation via config(), independent of whatever
+// the developer's own .env happens to contain.
+
+it('config=false, no flag: does not create any raw response file', function () {
     Storage::fake('local');
     config([
         'etoro.enabled' => true,
         'etoro.api_key' => 'test-api-key-value',
         'etoro.user_key' => 'test-user-key-value',
+        'etoro.store_raw_responses' => false,
     ]);
     Http::fake(fakeEtoroResponses());
 
-    $this->artisan('etoro:doctor', ['--live' => true])->run();
+    $this->artisan('etoro:doctor', ['--live' => true])->assertExitCode(0)->run();
 
     expect(Storage::disk('local')->allFiles('etoro/raw'))->toBeEmpty();
 });
 
-it('creates raw response files only under gitignored private storage with --capture-raw', function () {
+it('config=false, --capture-raw given: fails with a controlled configuration error and creates no file', function () {
     Storage::fake('local');
     config([
         'etoro.enabled' => true,
         'etoro.api_key' => 'test-api-key-value',
         'etoro.user_key' => 'test-user-key-value',
+        'etoro.store_raw_responses' => false,
+    ]);
+    Http::fake(fakeEtoroResponses());
+
+    $output = callEtoroDoctor(['--live' => true, '--capture-raw' => true]);
+
+    expect(Storage::disk('local')->allFiles('etoro/raw'))->toBeEmpty()
+        ->and($output)->toContain('not enabled in configuration');
+
+    Http::assertNothingSent();
+});
+
+it('config=true, no flag: does not create any raw response file', function () {
+    Storage::fake('local');
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+        'etoro.store_raw_responses' => true,
+    ]);
+    Http::fake(fakeEtoroResponses());
+
+    $this->artisan('etoro:doctor', ['--live' => true])->assertExitCode(0)->run();
+
+    expect(Storage::disk('local')->allFiles('etoro/raw'))->toBeEmpty();
+});
+
+it('config=true, --capture-raw given: creates raw response files only under gitignored private storage', function () {
+    Storage::fake('local');
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+        'etoro.store_raw_responses' => true,
     ]);
     Http::fake(fakeEtoroResponses());
 
@@ -256,4 +342,100 @@ it('creates raw response files only under gitignored private storage with --capt
     }
 
     expect($output)->toContain('personal and financial data');
+});
+
+it('with --only=live-portfolio and no --username, calls only rankings then live-portfolio', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Http::fake(fakeEtoroResponses());
+
+    $output = callEtoroDoctor(['--live' => true, '--only' => 'live-portfolio']);
+
+    Http::assertSentCount(2);
+    Http::assertSent(fn (Request $request) => str_contains($request->url(), '/portfolios/rankings'));
+    Http::assertSent(fn (Request $request) => $request->url() === 'https://public-api.etoro.com/api/v1/user-info/people/demo_trader_one/portfolio/live');
+    Http::assertNotSent(fn (Request $request) => $request->url() === 'https://public-api.etoro.com/api/v1/me');
+    Http::assertNotSent(fn (Request $request) => str_starts_with($request->url(), 'https://public-api.etoro.com/api/v1/user-info/people?'));
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/gain'));
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/trading/info/'));
+
+    foreach (Http::recorded() as [$request]) {
+        expect($request->method())->toBe('GET');
+    }
+
+    expect($output)->toContain('Trader live portfolio');
+});
+
+it('with --only=live-portfolio and --username given, skips the rankings dependency entirely', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Http::fake(fakeEtoroResponses());
+
+    callEtoroDoctor(['--live' => true, '--only' => 'live-portfolio', '--username' => 'demo_trader_one']);
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request) => $request->url() === 'https://public-api.etoro.com/api/v1/user-info/people/demo_trader_one/portfolio/live');
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/portfolios/rankings'));
+});
+
+it('rejects an unknown --only value with a controlled validation failure and no HTTP calls', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Http::fake();
+
+    $exitCode = Artisan::call('etoro:doctor', ['--live' => true, '--only' => 'bogus-capability']);
+
+    expect($exitCode)->not->toBe(0);
+    Http::assertNothingSent();
+});
+
+it('does not create a raw file for --only without --capture-raw', function () {
+    Storage::fake('local');
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Http::fake(fakeEtoroResponses());
+
+    callEtoroDoctor(['--live' => true, '--only' => 'real-pnl']);
+
+    expect(Storage::disk('local')->allFiles('etoro/raw'))->toBeEmpty();
+});
+
+it('never leaks the original transport message, credentials, username, or URL parameters in transport diagnostics', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value-should-not-print',
+        'etoro.user_key' => 'test-user-key-value-should-not-print',
+    ]);
+
+    $original = new GuzzleConnectException(
+        'SENTINEL_ORIGINAL_TRANSPORT_MESSAGE test-api-key-value-should-not-print demo_trader_one',
+        new GuzzleRequest('GET', 'https://public-api.etoro.com/api/v1/user-info/people/demo_trader_one/portfolio/live?secret=leak'),
+        null,
+        ['errno' => 6],
+    );
+
+    $responses = fakeEtoroResponses();
+    $responses['https://public-api.etoro.com/api/v1/user-info/people/*/portfolio/live'] = fn () => throw new ConnectionException($original->getMessage(), 0, $original);
+    Http::fake($responses);
+
+    $output = callEtoroDoctor(['--live' => true]);
+
+    expect($output)
+        ->not->toContain('SENTINEL_ORIGINAL_TRANSPORT_MESSAGE')
+        ->not->toContain('test-api-key-value-should-not-print')
+        ->not->toContain('demo_trader_one')
+        ->not->toContain('secret=leak')
+        ->toContain('dns_failure');
 });

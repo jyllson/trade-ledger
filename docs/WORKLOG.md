@@ -386,3 +386,126 @@ vendor/bin/phpstan analyse       # 0 errors
 **Live poziv i dalje NIJE izvršen.** Čeka posebno, eksplicitno odobrenje.
 
 ---
+
+## 2026-07-30/31 — Prvi commit i push Milestone 1 koda
+
+`git commit` + `git push` na `milestone/1-etoro-api-spike` (commit `87987db`)
+— kod, testovi i dokumentacija od prethodnih koraka. `main` nije diran.
+
+---
+
+## 2026-07-31 — Run #1: prvi živi capability test
+
+Nakon eksplicitnog odobrenja, pre-provere (grana, working tree, dry-run,
+`ETORO_STORE_RAW_RESPONSES` status) i tačno jedan poziv:
+
+```bash
+php artisan etoro:doctor --live   # bez --capture-raw
+```
+
+Rezultat: 6/7 proba `works`/`available` (HTTP 200), bez 401/403/404/429/5xx,
+bez rate-limit header-a. Proba #5 (Trader live portfolio) —
+`temporarily_unavailable`, transport (konekciona) greška nakon ugrađenog
+bounded retry-ja. Nijedan raw fajl napravljen; nijedan `Authorization`
+header poslat; log fajl nepromenjen tokom poziva (provereno timestamp-om i
+grep-om). `git status` čist.
+
+---
+
+## 2026-07-31 — Korekcije pred ciljanu probu: `--only`, sanitizovana transportna dijagnostika
+
+Pre ciljane probe probe #5, primenjeno 6 korekcija:
+
+1. `docs/ETORO_API_CAPABILITIES.md` — kreiran, Run #1 rezultati (bez request
+   ID-jeva/identiteta/vrednosti).
+2. `--only=<capability>` opcija na `etoro:doctor` — allowlist (`me`,
+   `rankings`, `profile`, `performance`, `live-portfolio`, `real-pnl`,
+   `demo-pnl`); username-zavisne probe pozivaju `rankings` samo kao
+   dependency kad `--username` nije dat.
+3. `EtoroClient::diagnoseTransportFailure()` — normalizuje
+   `ConnectionException` u jednu od 6 kategorija koristeći isključivo curl
+   `errno`/`connect_time`, nikad originalnu poruku/URL/payload; fallback na
+   `unknown_transport_failure` kad uzrok nije pouzdano odredljiv.
+4. Testovi: `--only` scenariji (sa/bez `--username`, nevažeća vrednost),
+   kategorizacija transportnih grešaka (dataset po errno), bez leak-a
+   originalne poruke.
+5. `php artisan test` (70 passed), `vendor/bin/pint`, `vendor/bin/phpstan
+   analyse` (1 greška pronađena i ispravljena: neiscrpan `match` u
+   `probeFor()` — dodat `default => throw new LogicException(...)`).
+6. Ciljana proba `php artisan etoro:doctor --live --only=live-portfolio`
+   (bez `--capture-raw`) — komanda je trajala >60s (premešteno u background,
+   sačekan prirodni završetak, bez ponavljanja/izmene).
+
+Vidi DECISIONS.md D-015.
+
+---
+
+## 2026-07-31 — Run #2: ciljana proba live-portfolio
+
+Rezultat: **HTTP 200** za `Trader live portfolio` (rankings dependency 200,
+~42s; live-portfolio 200, ~21s — oba neuobičajeno spora u odnosu na Run #1,
+ukazuje na opšte usporenje mreže/eToro API-ja u tom trenutku, ne problem
+specifičan za endpoint). Struktura odgovora: `realizedCreditPct,
+unrealizedCreditPct, positions[](259), socialTrades[](0)`. Samo 2 zahteva
+poslata (rankings + live-portfolio); ništa drugo. Nijedan raw fajl; nijedan
+`Authorization` header. `git status` nepromenjen (samo kod od prethodnog
+koraka, i dalje bez commit-a).
+
+---
+
+## 2026-07-31 — Milestone 1: kapabilnost dokumentovana, retry dijagnostika, double opt-in raw capture
+
+Vlasnik projekta je prihvatio Run #2 i tražio finalni checkpoint pre
+selektivnog raw capture-a. Detaljno obrazloženje: DECISIONS.md D-016.
+
+### Komande
+
+```bash
+php artisan test --compact       # 78 passed, 237 assertions
+vendor/bin/pint --format agent   # passed
+vendor/bin/phpstan analyse       # 0 errors
+git check-ignore -v storage/app/private/etoro/raw/example.json   # exit 0, potvrđeno
+```
+
+### Izmenjeni/novi fajlovi
+
+- `docs/ETORO_API_CAPABILITIES.md` — Run #1 i Run #2, zaključak `works` za
+  live-portfolio, bez request ID-jeva/username-a/vrednosti
+- `app/Etoro/EtoroApiResponse.php` — `attemptCount`, `totalDurationMs`,
+  `finalAttemptDurationMs` (zamenjuju stari `durationMs`)
+- `app/Etoro/Exceptions/EtoroRequestException.php` — isti trojac dodat
+- `app/Etoro/EtoroClient.php` — mereno po pokušaju unutar retry petlje
+- `app/Console/Commands/EtoroDoctorCommand.php` — tri nove kolone
+  (`Attempts`, `Total Duration`, `Final Attempt Duration`), napomena
+  `recovered_after_retry` za uspeh posle retry-ja, double opt-in gate za
+  `--capture-raw` (config `store_raw_responses` I flag zajedno)
+- `tests/Feature/Etoro/EtoroClientTest.php`,
+  `tests/Feature/Console/EtoroDoctorCommandTest.php` — retry dijagnostika,
+  4 kombinacije double opt-in, `recovered_after_retry` prikaz
+- `tests/Feature/Etoro/RawStorageGitignoreTest.php` (novo) — autoritativna
+  `git check-ignore` provera
+
+### Greške i rešenja tokom rada
+
+1. `Http::fake()` ne evidentira pokušaje čiji fake closure baci exception
+   (samo stvarne odgovore) — `assertSentCount(3)` je pao za
+   timeout→503→200 scenario. Rešeno hvatanjem `x-request-id` direktno iz
+   closure-a (poziva se na sva 3 pokušaja) umesto iz `Http::recorded()`.
+2. Pokušaj dodavanja `storage/app/private/etoro/.gitignore` radi
+   eksplicitne dokumentacije — otkriveno da git ne silazi u već isključen
+   (`*`) direktorijum, pa taj fajl ne bi ni bio trackovan; uklonjen,
+   zadržan samo postojeći roditeljski blanket rule + autoritativan test.
+
+### Rezultati
+
+- `php artisan test`: **78 passed (237 assertions)** — 0 failures (1
+  preduslovno, nepovezano upozorenje, kao i pre)
+- `vendor/bin/pint`: prošao
+- `vendor/bin/phpstan analyse` (level 7): 0 errors
+
+**Nijedan novi live API poziv nije izvršen. Bez commit-a, bez push-a, bez
+fixtures.** Sledeći korak (kad se odobri): selektivni raw capture isključivo
+javnih trader podataka (rankings, public profile, performance history, live
+portfolio) — bez `/me` i bez Real/Demo P&L payload-a.
+
+---

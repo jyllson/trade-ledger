@@ -7,6 +7,8 @@ use App\Etoro\Exceptions\EtoroConfigurationException;
 use App\Etoro\Exceptions\EtoroRequestException;
 use App\Etoro\Exceptions\EtoroUnexpectedResponseException;
 use App\Etoro\RankingQuery;
+use GuzzleHttp\Exception\ConnectException as GuzzleConnectException;
+use GuzzleHttp\Psr7\Request as GuzzleRequest;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -250,6 +252,51 @@ it('retries a bounded number of times on connection failure and then throws', fu
     app(EtoroClient::class)->authenticatedUser();
 })->throws(EtoroRequestException::class);
 
+it('falls back to unknown_transport_failure without a curl errno when the cause cannot be determined', function () {
+    Http::fake(fn () => throw new ConnectionException('SENTINEL_SHOULD_NOT_LEAK'));
+
+    try {
+        app(EtoroClient::class)->authenticatedUser();
+        $this->fail('Expected EtoroRequestException to be thrown.');
+    } catch (EtoroRequestException $exception) {
+        expect($exception->transportReason)->toBe('unknown_transport_failure')
+            ->and($exception->transportErrno)->toBeNull()
+            ->and($exception->getMessage())->not->toContain('SENTINEL_SHOULD_NOT_LEAK');
+    }
+});
+
+it('normalizes a connection failure into a safe transport category using only curl errno/timing, never the original message', function (int $errno, ?float $connectTime, string $expectedReason) {
+    $handlerContext = array_filter(
+        ['errno' => $errno, 'connect_time' => $connectTime],
+        static fn (mixed $value): bool => $value !== null,
+    );
+
+    $original = new GuzzleConnectException(
+        'SENTINEL_ORIGINAL_TRANSPORT_MESSAGE_SHOULD_NOT_LEAK',
+        new GuzzleRequest('GET', 'https://public-api.etoro.com/api/v1/me'),
+        null,
+        $handlerContext,
+    );
+
+    Http::fake(fn () => throw new ConnectionException($original->getMessage(), 0, $original));
+
+    try {
+        app(EtoroClient::class)->authenticatedUser();
+        $this->fail('Expected EtoroRequestException to be thrown.');
+    } catch (EtoroRequestException $exception) {
+        expect($exception->transportReason)->toBe($expectedReason)
+            ->and($exception->transportErrno)->toBe($errno)
+            ->and($exception->getMessage())->not->toContain('SENTINEL_ORIGINAL_TRANSPORT_MESSAGE_SHOULD_NOT_LEAK');
+    }
+})->with([
+    'dns failure (could not resolve host)' => [6, null, 'dns_failure'],
+    'tls failure (ssl connect error)' => [35, null, 'tls_failure'],
+    'connect timeout (never connected)' => [28, 0.0, 'connect_timeout'],
+    'request timeout (connected, then stalled)' => [28, 1.25, 'request_timeout'],
+    'connection reset (got nothing)' => [52, null, 'connection_reset'],
+    'ambiguous couldnt-connect stays unknown rather than guessed' => [7, null, 'unknown_transport_failure'],
+]);
+
 it('throws EtoroUnexpectedResponseException when a 2xx body does not decode to an array', function () {
     Http::fake(['*' => Http::response('not-json-and-not-an-object', 200)]);
 
@@ -265,6 +312,50 @@ it('never leaks configured credential values in exception messages', function ()
         expect($exception->getMessage())
             ->not->toContain('test-api-key-value')
             ->not->toContain('test-user-key-value');
+    }
+});
+
+it('reports attempt count and duration diagnostics when the first attempt times out, the second is a 503, and the third succeeds', function () {
+    $callCount = 0;
+    $capturedRequestIds = [];
+
+    // Http::fake() only records completed request/response pairs, not
+    // attempts whose stub callback throws — so request IDs are captured
+    // directly from every closure invocation instead of Http::recorded().
+    Http::fake(function (Request $request) use (&$callCount, &$capturedRequestIds) {
+        $callCount++;
+        $capturedRequestIds[] = $request->header('x-request-id')[0];
+
+        return match ($callCount) {
+            1 => throw new ConnectionException('SENTINEL_SHOULD_NOT_LEAK'),
+            2 => Http::response(['error' => 'boom-SENTINEL_SHOULD_NOT_LEAK'], 503),
+            default => Http::response(['gcid' => 1, 'scopes' => []], 200),
+        };
+    });
+
+    $response = app(EtoroClient::class)->authenticatedUser();
+
+    expect($callCount)->toBe(3)
+        ->and($response->attemptCount)->toBe(3)
+        ->and(array_unique($capturedRequestIds))->toHaveCount(3)
+        ->and($response->requestId)->toBe($capturedRequestIds[2])
+        ->and($response->totalDurationMs)->toBeGreaterThan(0)
+        ->and($response->finalAttemptDurationMs)->toBeGreaterThanOrEqual(0)
+        ->and(json_encode($response->payload))->not->toContain('SENTINEL_SHOULD_NOT_LEAK')
+        ->and(json_encode($response->payload))->not->toContain('test-api-key-value')
+        ->and(json_encode($response->payload))->not->toContain('test-user-key-value');
+});
+
+it('carries attempt count and duration diagnostics on a final failure after retries', function () {
+    Http::fake(['*' => Http::response(['error' => 'boom'], 503)]);
+
+    try {
+        app(EtoroClient::class)->authenticatedUser();
+        $this->fail('Expected EtoroRequestException to be thrown.');
+    } catch (EtoroRequestException $exception) {
+        expect($exception->attemptCount)->toBe(3)
+            ->and($exception->totalDurationMs)->toBeGreaterThan(0)
+            ->and($exception->finalAttemptDurationMs)->toBeGreaterThanOrEqual(0);
     }
 });
 
