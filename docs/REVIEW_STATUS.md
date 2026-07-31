@@ -1,10 +1,7 @@
 # REVIEW_STATUS — TradeLedger
 
 **Trenutni milestone:** Milestone 1 — API spike i fixtures
-**Status:** dve žive probe izvršene i prihvaćene (svih 7 capability-ja
-potvrđeno kao `works`/`available`); kod dopunjen retry dijagnostikom i
-double opt-in raw capture-om; čeka odobrenje za selektivni raw capture
-javnih trader podataka
+**Status:** završen, PR #1 spreman za merge nakon code reviewa
 **Poslednje ažuriranje:** 2026-07-31
 
 ## Ispunjeni kriterijumi prihvatanja
@@ -23,7 +20,7 @@ javnih trader podataka
 - [x] `php artisan etoro:doctor` — bez `--live` samo lokalna provera
       konfiguracije; sa `--live` svih 7 proba ili, sa `--only=<capability>`,
       tačno jedna (uz rankings-dependency samo kad je potrebna i
-      `--username` nije dat)
+      `--username` nije dat); kontrolisan, smislen exit code (D-017)
 - [x] Sanitizovana transportna dijagnostika — normalizovane kategorije
       (`connect_timeout`, `request_timeout`, `dns_failure`, `tls_failure`,
       `connection_reset`, `unknown_transport_failure`) iz curl
@@ -39,7 +36,11 @@ javnih trader podataka
       git-ignorisano (`git check-ignore`, potvrđeno i testom)
 - [x] Auto-selekcija public trader username-a iz prvog `type === 'trader'`
       reda uspešnog rankings odgovora; bez hardkodovanog username-a u kodu;
-      `--username=` override dostupan
+      `--username=` override dostupan; prazan/whitespace-only `--username`
+      vraća kontrolisanu validation grešku (D-017)
+- [x] `ETORO_BASE_URL` mora biti validan apsolutni HTTPS URL pre slanja
+      credential header-a — nevalidan ili non-HTTPS URL baca
+      `EtoroConfigurationException` bez ijednog mrežnog poziva (D-017)
 - [x] Neuspešan rankings ispravno preskače username-zavisne probe; P&L probe
       se uvek oba izvršavaju nezavisno od `ETORO_ENVIRONMENT`
 - [x] Sanitizovan terminalski izlaz — samo nazivi polja/broj stavki, nikad
@@ -48,13 +49,41 @@ javnih trader podataka
       greške; 400/401/403/404/429 se ne retry-uju automatski; 429 nosi
       `Retry-After`
 - [x] Kontekstualna 403 klasifikacija (`requires_additional_scope` za
-      account-level probe, `private_or_visibility_dependent` za
-      public-trader probe)
+      account-level probe — uključujući Real/Demo P&L —
+      `private_or_visibility_dependent` za public-trader probe)
 - [x] Svi testovi offline kroz `Http::fake()`/`Sleep::fake()` — uključujući
       `--live` i `--only` code path-ove, double opt-in kombinacije (sve 4),
-      retry dijagnostiku, transportnu dijagnostiku, autoritativnu
-      `git check-ignore` proveru
-- [x] `php artisan test`: **78 passed / 237 assertions**
+      retry dijagnostiku, transportnu dijagnostiku, exit code scenarije,
+      username/HTTPS validaciju, autoritativnu `git check-ignore` proveru
+- [x] **Sedam capability-ja potvrđeno živim probama**: authenticated
+      profile, investor rankings, public trader profile, trader
+      performance history, trader live portfolio, real account P&L, demo
+      account P&L — svih 7 klasifikovano kao `works`/`available`. Detalji u
+      `docs/ETORO_API_CAPABILITIES.md`.
+- [x] **Selektivni raw capture izvršen** — isključivo za četiri javna
+      dataset-a istog test-tradera (rankings, public profile, performance
+      history, live portfolio). `/me`, Real P&L i Demo P&L payload-i
+      **nisu capture-ovani** ni u jednom trenutku.
+- [x] **Privatna analiza šeme izvršena** lokalno (schema inventory, cross-file
+      relations, sanitizacioni plan) — bez izlaganja identifikacionih
+      vrednosti.
+- [x] **Kandidat fixtures potpuno sintetizovani** (ne redigovani real podaci)
+      — deterministički placeholder-i, sintetičke vrednosti, sintetički
+      datumi van stvarnog opsega capture-a. **Leakage scan prošao (PASS)**
+      protiv sva četiri raw fajla pre premeštanja u Git.
+- [x] Četiri fixture JSON-a (`rankings.json`, `public-profile.json`,
+      `performance-history.json`, `live-portfolio.json`) i `README.md`
+      premešteni u `tests/Fixtures/Etoro/` i commit-ovani. Pokriveni
+      `tests/Feature/Etoro/FixtureIntegrityTest.php` testom.
+- [x] Privatni raw fajlovi, sanitization manifest, leakage report i
+      copyability-hipoteza analiza **nisu commit-ovani** — ostaju
+      isključivo u `storage/app/private/etoro/` (git-ignorisano).
+- [x] PR #1 otvoren prema `main` sa capability i test-plan opisom.
+- [x] Code-review nalazi ispravljeni (D-017): kontrolisan exit code za
+      `etoro:doctor`, validacija praznog `--username`, validacija HTTPS
+      `ETORO_BASE_URL`, `composer.lock` usklađen, CI `tests/Unit` fix.
+- [x] GitHub Actions zelen nakon poslednjeg push-a.
+- [x] `php artisan test`: **101 passed / 323 assertions**, 0 failures
 - [x] `vendor/bin/pint`: prošao
 - [x] `vendor/bin/phpstan analyse` (level 7): 0 errors
 - [x] Bez migracija, Eloquent modela, Filament resursa za eToro podatke
@@ -73,23 +102,8 @@ javnih trader podataka
 - **Svih 7 capability-ja je sada potvrđeno kao radno** (`works`/`available`).
   Detalji u `docs/ETORO_API_CAPABILITIES.md`.
 
-## Neispunjeni kriterijumi prihvatanja
-
-- [ ] Selektivni raw capture (rankings, public profile, performance
-      history, live portfolio — bez `/me` i bez Real/Demo P&L) — čeka
-      eksplicitno odobrenje vlasnika projekta
-- [ ] Sanitizovani fixtures u `tests/Fixtures/Etoro/` — prave se tek nakon
-      selektivnog raw capture-a, uz prikaz tačne redakcije vlasniku na
-      odobrenje pre commit-a
-- [ ] Commit i push code-a od ovog checkpoint-a — čeka eksplicitno
-      odobrenje
-
 ## Poznati problemi
 
-- Lokalni `.env` vlasnika ima `ETORO_ENABLED=true`, `ETORO_ENVIRONMENT=real`,
-  postavljene `ETORO_API_KEY`/`ETORO_USER_KEY`, i (od poslednje izmene
-  vlasnika) `ETORO_STORE_RAW_RESPONSES=false`. Lokalni `.env` se ne čita ni
-  ne menja od strane agenta.
 - Klasifikacija 403 je kontekstualna ali i dalje prva razumna pretpostavka
   zasnovana na HTTP statusu, ne na uvidu u stvarni payload.
 - Test suite prijavljuje jedno (1) preduslovno/okruženje-nivo upozorenje bez
@@ -98,10 +112,15 @@ javnih trader podataka
 - Dokumentacija je interno nekonzistentna po pitanju Authorization/Bearer
   header-a (DECISIONS.md D-013) — u praksi razrešeno za sve testirane
   endpointe: nijedan nije zahtevao Bearer.
+- `avgPosSize` i `optimalCopyPosSize` (rankings) ostaju zvanično
+  nedokumentovani (bez opisa u OpenAPI šemi) — ne koriste se ni u jednoj
+  kalkulaciji.
 
 ## Sledeći preporučeni korak
 
-Vlasnik projekta eksplicitno odobrava selektivni raw capture isključivo
-javnih trader podataka: rankings, public profile, performance history, live
-portfolio. **Bez `/me` i bez Real/Demo P&L payload-a.** Nakon capture-a:
-ručna sanitizacija i izrada fixtures uz odobrenje vlasnika pre commit-a.
+1. Merge PR #1 u `main`.
+2. Kreiranje nove grane za Milestone 2.
+3. Milestone 2: DTO-i, mapperi i `CopyCoverageCalculator` zasnovani na
+   posmatranoj (i sintetičkim fixtures pokrivenoj) API šemi.
+4. Bez ponovnog live raw capture-a, osim ako se tokom Milestone 2 otkrije
+   konkretna schema rupa koja zahteva dodatni uvid u stvarni odgovor.

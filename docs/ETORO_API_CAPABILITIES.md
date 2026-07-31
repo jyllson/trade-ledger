@@ -111,6 +111,16 @@ ove endpointe u odnosu na plan.
 
 ### Sledeći koraci
 
-Selektivni raw capture isključivo javnih trader podataka (rankings, public
-profile, performance history, live portfolio) — bez `/me` i bez Real/Demo
-P&L payload-a.
+Selektivni capture javnih dataset-a (rankings, public profile, performance
+history, live portfolio) je **završen lokalno** — bez `/me` i bez
+Real/Demo P&L payload-a. Raw fajlovi ostaju privatni i Git-ignorisani
+(`storage/app/private/etoro/raw/`).
+
+Na osnovu posmatrane šeme napravljeni su schema-faithful, **potpuno
+sintetički** fixtures u `tests/Fixtures/Etoro/` (leakage scan protiv svih
+raw fajlova prošao pre commit-a).
+
+Sledeći razvojni korak je Milestone 2: DTO-i, mapperi i
+`CopyCoverageCalculator` zasnovani na ovoj posmatranoj šemi. Dodatni live
+capture nije planiran osim ako se tokom te implementacije otkrije
+konkretna schema rupa koja zahteva dodatni uvid u stvarni odgovor.

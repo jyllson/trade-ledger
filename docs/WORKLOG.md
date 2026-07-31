@@ -509,3 +509,116 @@ javnih trader podataka (rankings, public profile, performance history, live
 portfolio) — bez `/me` i bez Real/Demo P&L payload-a.
 
 ---
+
+## 2026-07-31 — Selektivni raw capture: četiri javna dataset-a
+
+Nakon eksplicitnog odobrenja, izvršena tačno četiri ciljana live poziva
+(`--only=rankings`, `--only=profile`, `--only=performance`,
+`--only=live-portfolio`, svaki uz `--capture-raw`) za isti test-trader,
+biran iz rankings odgovora (username nikad ispisan ni zapisan u
+dokumentaciju). `/me`, Real P&L i Demo P&L **nisu pozivani**. Svi raw
+odgovori sačuvani isključivo u `storage/app/private/etoro/raw/`
+(git-ignorisano, potvrđeno `git check-ignore`). Rezultati: sva četiri
+poziva HTTP 200 (`works`).
+
+---
+
+## 2026-07-31 — Privatna analiza šeme
+
+Lokalna, ne-committed analiza sva četiri raw fajla: kompletan schema
+inventory (nazivi polja, tipovi, nullability, brojevi zapisa/pozicija),
+cross-file relacije, i plan sanitizacije. Sve zapisano u
+`storage/app/private/etoro/analysis/` (git-ignorisano).
+
+**Ključni nalaz:** live-portfolio odgovor sadrži 259 zapisa pozicija koje
+se svode na samo 14 jedinstvenih instrumenata (svaki instrument ima više
+od jedne pozicije); zbir `investmentPct` vrednosti svih pozicija iznosi
+približno 100 (procentne poene, ne 0–1 razlomak). Nikakve identifikacione
+vrednosti (username, ID-jevi, tačni iznosi) nisu zapisane ni u ovom
+worklog-u ni bilo gde van privatnih, git-ignorisanih fajlova.
+
+---
+
+## 2026-07-31 — Generisanje sintetičkih candidate fixture-a
+
+Na osnovu privatne analize šeme, generisana četiri **potpuno sintetička**
+candidate fixture-a (rankings, profile, performance-history,
+live-portfolio) — deterministički placeholder-i (npr. `trader_001`,
+`instrument_NNN`, `position_NNN`), sintetičke vrednosti, sintetički
+datumi. Fixtures reprodukuju posmatranu API šemu ali ne predstavljaju
+stvarnog tradera niti njegov stvarni portfolio. Sanitizacioni manifest
+napisan uz svaki fixture, dokumentujući koje polje je zamenjeno, kojom
+placeholder porodicom, i koja polja ostaju nerazjašnjena (npr.
+`avgPosSize`/`optimalCopyPosSize`).
+
+---
+
+## 2026-07-31 — Leakage scan i korekcije candidate fixture-a
+
+Automatski leakage scan candidate fixture-a protiv sva četiri raw fajla.
+Prvi prolaz otkrio je koliziju: sintetički datumi (izvorno budući,
+2029–2032) slučajno su se poklopili sa stvarnim opsegom performance
+podataka. Ispravljeno pomeranjem na fiksni prošli interval (2010–2012),
+strogo pre stvarnog opsega — ponovni scan: **PASS**, 0 kolizija. Dodatne
+korekcije nakon internog pregleda: tačne granične `investmentPct`
+vrednosti za testiranje minimalne copied-position granice, ispravljena
+buy/sell take-profit/stop-loss semantika, i cross-file timeline
+usklađivanje (`firstActivity` sintetičkog naloga ≤ prvi performance
+period).
+
+---
+
+## 2026-07-31 — Premeštanje fixtures u Git; commit i PR #1
+
+Nakon odobrenja, samo četiri JSON candidate fixture-a (preimenovana u
+`rankings.json`, `public-profile.json`, `performance-history.json`,
+`live-portfolio.json`) i novi `README.md` premešteni u
+`tests/Fixtures/Etoro/`. Sanitizacioni manifest, leakage report i
+copyability-hipoteza analiza **ostaju privatni** (git-ignorisano),
+namerno nisu kopirani. Dodat `tests/Feature/Etoro/FixtureIntegrityTest.php`.
+
+Commit `b1e350b` ("feat: add read-only eToro capability spike"), push na
+`milestone/1-etoro-api-spike`, otvoren **PR #1** prema `main`
+("Milestone 1: Add read-only eToro capability spike").
+
+---
+
+## 2026-07-31 — Prvi GitHub Actions failure: nedostaje tests/Unit
+
+Prvi CI run na PR #1 vratio je exit code 2 — `phpunit.xml` deklariše
+`tests/Unit` testsuite, ali direktorijum nije bio trackovan u Git-u (git
+ne prati prazne direktorijume), pa na svežem checkout-u u CI-ju uopšte
+nije postojao.
+
+---
+
+## 2026-07-31 — Code-review nalazi i korekcije (D-017)
+
+Pet nalaza iz code review-a ispravljeno:
+
+1. `tests/Unit/.gitkeep` dodat — rešava CI failure.
+2. `composer.lock` usklađen sa `composer.json` (`composer update --lock`)
+   — potvrđeno da nijedna verzija paketa nije promenjena, samo
+   `content-hash`.
+3. `etoro:doctor` sada vraća kontrolisan, smislen exit code: `--only`
+   uspešan samo za `works`/`works_with_partial_data`; pun `--live` run
+   neuspešan ako bilo koja izvršena (ne-skipped) capability ne uspe.
+4. Prazan/whitespace-only `--username` sada vraća kontrolisanu validation
+   grešku (bez HTTP poziva, bez neuhvaćenog `InvalidArgumentException`).
+5. `ETORO_BASE_URL` mora biti validan apsolutni HTTPS URL pre slanja
+   credential header-a — nevalidan ili non-HTTPS URL baca
+   `EtoroConfigurationException` bez mrežnog poziva.
+
+Dodato 10 novih offline testova. Vidi `docs/DECISIONS.md` D-017.
+
+Commit `aa0f493c5be01e2a302795386c44782b0b5d82f8` ("fix: address milestone
+1 review findings"), push na `milestone/1-etoro-api-spike`.
+
+### Rezultati
+
+- `php artisan test`: **101 passed (323 assertions)** — 0 failures
+- `vendor/bin/pint`: prošao
+- `vendor/bin/phpstan analyse` (level 7): 0 errors
+- **GitHub Actions: zelen** nakon ovog push-a.
+
+---

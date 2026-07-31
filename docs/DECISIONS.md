@@ -473,3 +473,48 @@ unutar već isključenih direktorijuma ne rade. Dodat autoritativan test
 `git check-ignore` da ovo trajno potvrdi.
 
 ---
+
+## D-017: Code-review korekcije pred merge PR #1
+
+**Datum:** 2026-07-31
+**Status:** zahtev code review-a, primenjeno pre mergea
+
+1. **Raw payload-i i privatni analitički dokumenti nikad ne idu u Git.**
+   Sirovi API odgovori, schema-inventory/analysis dokumenti, sanitization
+   manifest, leakage report i copyability-hipoteza analiza ostaju
+   isključivo u `storage/app/private/etoro/` (git-ignorisano). Samo
+   izričito odobreni, potpuno sintetički fixture JSON-i (i njihov README)
+   se ikad premeštaju u trackovan direktorijum.
+
+2. **Committed fixture-i moraju biti potpuno sintetički, ne samo
+   redigovani.** Redakcija (zamena stvarnih vrednosti placeholder-ima uz
+   zadržavanje ostatka payload-a) nije dovoljna — fixture mora biti
+   hand-authored sintetički skup vrednosti koji reprodukuje šemu, ne
+   transformisan stvaran odgovor, čak i kad su identifikacione vrednosti
+   uklonjene.
+
+3. **Documented-but-unobserved polja ne ulaze automatski u base fixture.**
+   Ako zvanična OpenAPI šema dokumentuje polje koje stvarni live capture
+   nikad nije vratio (npr. rankings `country`), to polje se ne dodaje u
+   osnovni fixture samo zato što je dokumentovano — osnovni fixture prati
+   stvarno posmatranu šemu. Testiranje dokumentovanog-ali-neposmatranog
+   oblika radi se kroz eksplicitno označenu, zasebnu mutation varijantu.
+
+4. **`etoro:doctor --live` vraća non-zero exit code kada izvršena
+   capability ne uspe.** Ranije je `handle()` uvek vraćao `SUCCESS` posle
+   `--live` run-a, bez obzira na klasifikaciju proba. Sada: `--only=<cap>`
+   vraća `SUCCESS` samo za `works`/`works_with_partial_data`, a `FAILURE`
+   za svaku drugu klasifikaciju (uključujući `skipped`); pun `--live` run
+   vraća `FAILURE` ako bilo koja **izvršena** (ne-skipped) capability nije
+   `works`/`works_with_partial_data`. Same klasifikacije i enum vrednosti
+   nisu menjane — samo mapiranje klasifikacije u exit code.
+
+5. **`ETORO_BASE_URL` mora biti validan apsolutni HTTPS URL pre slanja
+   credential header-a.** `EtoroClient::ensureConfigured()` sada proverava
+   da `parse_url()` uspešno vrati i `scheme === 'https'` i neprazan
+   `host`; u suprotnom baca `EtoroConfigurationException` pre ijednog
+   mrežnog poziva. Provera nije vezana za jedan hardkodovan hostname —
+   budući demo/staging HTTPS endpoint ostaje konfigurabilan preko
+   `ETORO_BASE_URL` bez izmene koda.
+
+---
