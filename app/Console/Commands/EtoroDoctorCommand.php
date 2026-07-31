@@ -85,6 +85,14 @@ class EtoroDoctorCommand extends Command
             return self::FAILURE;
         }
 
+        $username = $this->option('username');
+
+        if ($username !== null && trim($username) === '') {
+            $this->components->error('--username, when provided, must not be blank.');
+
+            return self::FAILURE;
+        }
+
         if ($this->option('capture-raw')) {
             if (! $this->rawCaptureEnabledInConfig()) {
                 $this->components->error(
@@ -101,13 +109,22 @@ class EtoroDoctorCommand extends Command
             );
         }
 
-        if ($only !== null) {
-            $this->runSingleProbe($only);
-        } else {
-            $this->runLiveProbes();
-        }
+        $succeeded = $only !== null
+            ? $this->runSingleProbe($only)
+            : $this->runLiveProbes();
 
-        return self::SUCCESS;
+        return $succeeded ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * A capability is considered a successful health check result only when
+     * it actually works — partial data still counts, but every other
+     * classification (auth/scope/visibility failures, unavailable,
+     * unexpected schema, or skipped) does not.
+     */
+    private function isSuccessful(CapabilityStatus $status): bool
+    {
+        return in_array($status, [CapabilityStatus::Works, CapabilityStatus::WorksWithPartialData], true);
     }
 
     /**
@@ -159,7 +176,11 @@ class EtoroDoctorCommand extends Command
         }
     }
 
-    private function runLiveProbes(): void
+    /**
+     * @return bool true iff every executed (non-skipped) capability's
+     *              classification is Works or WorksWithPartialData
+     */
+    private function runLiveProbes(): bool
     {
         $rows = [];
 
@@ -195,6 +216,18 @@ class EtoroDoctorCommand extends Command
         $rows[] = $demoRow;
 
         $this->renderResults($rows);
+
+        foreach ($rows as $row) {
+            if ($row['classification'] === CapabilityStatus::Skipped) {
+                continue;
+            }
+
+            if (! $this->isSuccessful($row['classification'])) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -203,8 +236,12 @@ class EtoroDoctorCommand extends Command
      * select a username when --username was not given — no other capability
      * is ever probed. Account-level probes (me, rankings, real-pnl,
      * demo-pnl) never trigger any dependency call.
+     *
+     * @return bool true iff the targeted capability's own classification is
+     *              Works or WorksWithPartialData (a skipped or otherwise
+     *              unsuccessful targeted probe returns false)
      */
-    private function runSingleProbe(string $slug): void
+    private function runSingleProbe(string $slug): bool
     {
         $meta = self::CAPABILITIES[$slug];
         $rows = [];
@@ -224,7 +261,7 @@ class EtoroDoctorCommand extends Command
                 );
                 $this->renderResults($rows);
 
-                return;
+                return false;
             }
 
             $this->pauseBetweenProbes($rankingsRow);
@@ -234,6 +271,8 @@ class EtoroDoctorCommand extends Command
         $rows[] = $row;
 
         $this->renderResults($rows);
+
+        return $this->isSuccessful($row['classification']);
     }
 
     /**

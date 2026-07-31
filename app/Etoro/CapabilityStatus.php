@@ -5,7 +5,9 @@ namespace App\Etoro;
 /**
  * Classification recorded in docs/ETORO_API_CAPABILITIES.md for each probed
  * capability, including the four-way real/demo P&L classification (mapped as
- * available=Works, forbidden=PrivateOrVisibilityDependent,
+ * available=Works, forbidden=RequiresAdditionalScope (P&L is account-level,
+ * same as `me`/rankings — a 403 there means insufficient scope, not a
+ * visibility-restricted trader),
  * unavailable=NotAvailable|TemporarilyUnavailable,
  * authentication_blocked=AuthenticationBlocked).
  */

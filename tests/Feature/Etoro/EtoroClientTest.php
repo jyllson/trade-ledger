@@ -189,6 +189,43 @@ it('does not send a request when configuration is invalid', function () {
     Http::assertNothingSent();
 });
 
+it('rejects a non-HTTPS base URL and sends no request', function () {
+    config(['etoro.base_url' => 'http://public-api.etoro.com']);
+    Http::fake();
+
+    try {
+        app(EtoroClient::class)->authenticatedUser();
+        $this->fail('Expected EtoroConfigurationException to be thrown.');
+    } catch (EtoroConfigurationException) {
+        // expected
+    }
+
+    Http::assertNothingSent();
+});
+
+it('rejects a malformed base URL and sends no request', function () {
+    config(['etoro.base_url' => 'not a valid url ://']);
+    Http::fake();
+
+    try {
+        app(EtoroClient::class)->authenticatedUser();
+        $this->fail('Expected EtoroConfigurationException to be thrown.');
+    } catch (EtoroConfigurationException) {
+        // expected
+    }
+
+    Http::assertNothingSent();
+});
+
+it('allows a valid https base URL', function () {
+    config(['etoro.base_url' => 'https://public-api.etoro.com']);
+    Http::fake(['*' => Http::response(['gcid' => 1, 'scopes' => []], 200)]);
+
+    app(EtoroClient::class)->authenticatedUser();
+
+    Http::assertSentCount(1);
+});
+
 it('maps documented HTTP error statuses to EtoroRequestException without retrying', function (int $status, EtoroErrorCategory $category) {
     Http::fake(['*' => Http::response(['error' => 'sentinel-should-not-appear'], $status)]);
 

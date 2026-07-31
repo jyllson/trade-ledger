@@ -412,6 +412,104 @@ it('does not create a raw file for --only without --capture-raw', function () {
     expect(Storage::disk('local')->allFiles('etoro/raw'))->toBeEmpty();
 });
 
+it('returns a non-zero exit code for --only=me on a 401', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Http::fake(['https://public-api.etoro.com/api/v1/me' => Http::response(['error' => 'unauthorized'], 401)]);
+
+    $exitCode = Artisan::call('etoro:doctor', ['--live' => true, '--only' => 'me']);
+
+    expect($exitCode)->not->toBe(0);
+});
+
+it('returns a non-zero exit code for --only=me on a 503 that persists after bounded retries', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Sleep::fake();
+    Http::fake(['https://public-api.etoro.com/api/v1/me' => Http::response(['error' => 'boom'], 503)]);
+
+    $exitCode = Artisan::call('etoro:doctor', ['--live' => true, '--only' => 'me']);
+
+    expect($exitCode)->not->toBe(0);
+    Http::assertSentCount(3);
+});
+
+it('returns a non-zero exit code for --only=me on a transport failure', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Sleep::fake();
+    Http::fake(fn () => throw new ConnectionException('simulated connection failure'));
+
+    $exitCode = Artisan::call('etoro:doctor', ['--live' => true, '--only' => 'me']);
+
+    expect($exitCode)->not->toBe(0);
+});
+
+it('returns a zero exit code for a successful --only=rankings', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Http::fake(fakeEtoroResponses());
+
+    $exitCode = Artisan::call('etoro:doctor', ['--live' => true, '--only' => 'rankings']);
+
+    expect($exitCode)->toBe(0);
+});
+
+it('returns a non-zero exit code for a full live run when one probe fails', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    $responses = fakeEtoroResponses();
+    $responses['https://public-api.etoro.com/api/v1/me'] = Http::response(['error' => 'forbidden'], 403);
+    Http::fake($responses);
+
+    $exitCode = Artisan::call('etoro:doctor', ['--live' => true]);
+
+    expect($exitCode)->not->toBe(0);
+});
+
+it('rejects a blank --username with a controlled validation failure, a non-zero exit code, and no HTTP calls', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Http::fake();
+
+    $exitCode = Artisan::call('etoro:doctor', ['--live' => true, '--only' => 'profile', '--username' => '']);
+
+    expect($exitCode)->not->toBe(0);
+    Http::assertNothingSent();
+});
+
+it('rejects a whitespace-only --username with a controlled validation failure, a non-zero exit code, and no HTTP calls', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Http::fake();
+
+    $exitCode = Artisan::call('etoro:doctor', ['--live' => true, '--only' => 'profile', '--username' => '   ']);
+
+    expect($exitCode)->not->toBe(0);
+    Http::assertNothingSent();
+});
+
 it('never leaks the original transport message, credentials, username, or URL parameters in transport diagnostics', function () {
     config([
         'etoro.enabled' => true,

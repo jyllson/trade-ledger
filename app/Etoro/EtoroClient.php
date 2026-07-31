@@ -208,6 +208,30 @@ class EtoroClient
         if (blank(config('etoro.user_key'))) {
             throw EtoroConfigurationException::missingCredential('ETORO_USER_KEY');
         }
+
+        $this->ensureHttpsBaseUrl();
+    }
+
+    /**
+     * Credential headers must never be sent to a non-HTTPS or malformed
+     * endpoint. Validates only the scheme (must be https) and that a host
+     * is present — deliberately not tied to one hard-coded hostname, so a
+     * future demo/staging HTTPS endpoint remains configurable via
+     * ETORO_BASE_URL without a code change.
+     */
+    private function ensureHttpsBaseUrl(): void
+    {
+        $baseUrl = (string) config('etoro.base_url');
+        $parts = parse_url($baseUrl);
+
+        if (
+            $parts === false
+            || ! isset($parts['scheme'], $parts['host'])
+            || $parts['scheme'] !== 'https'
+            || $parts['host'] === ''
+        ) {
+            throw EtoroConfigurationException::invalidBaseUrl();
+        }
     }
 
     /**
