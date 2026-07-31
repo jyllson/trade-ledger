@@ -42,7 +42,7 @@ return [
 
     'connect_timeout_seconds' => env('ETORO_CONNECT_TIMEOUT_SECONDS', 5),
 
-    'store_raw_responses' => env('ETORO_STORE_RAW_RESPONSES', true),
+    'store_raw_responses' => env('ETORO_STORE_RAW_RESPONSES', false),
 
     'raw_response_retention_days' => env('ETORO_RAW_RESPONSE_RETENTION_DAYS', 90),
 

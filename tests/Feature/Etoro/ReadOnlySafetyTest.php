@@ -7,6 +7,14 @@ it('disables etoro write mode by default', function () {
     expect(config('etoro.allow_write'))->toBeFalse();
 });
 
+it('ships a safe false default for raw response storage in config source', function () {
+    // Asserted against the config source (not the live config() value), since
+    // a developer's own local .env may set ETORO_STORE_RAW_RESPONSES=true —
+    // this proves the shipped default, matching the .env.example assertion below.
+    expect(file_get_contents(config_path('etoro.php')))
+        ->toContain("env('ETORO_STORE_RAW_RESPONSES', false)");
+});
+
 it('exposes all documented configuration keys', function () {
     expect(config('etoro'))->toHaveKeys([
         'enabled',
@@ -35,7 +43,7 @@ it('documents every etoro environment variable in .env.example', function (strin
     'ETORO_REQUESTS_PER_MINUTE=',
     'ETORO_TIMEOUT_SECONDS=',
     'ETORO_CONNECT_TIMEOUT_SECONDS=',
-    'ETORO_STORE_RAW_RESPONSES=',
+    'ETORO_STORE_RAW_RESPONSES=false',
     'ETORO_RAW_RESPONSE_RETENTION_DAYS=',
 ]);
 
