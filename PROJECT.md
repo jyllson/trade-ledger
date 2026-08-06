@@ -1259,6 +1259,15 @@ The Filament `Imports` page must show failed runs and retry actions without expo
 
 ## 20. Delivery milestones
 
+> **Napomena o nomenklaturi (dodato 2026-08-06, vidi DECISIONS.md D-018):**
+> git nazivi grana poput `milestone/2-etoro-domain-model` označavaju
+> implementacioni tok (implementation stream), ne numeraciju product
+> milestone-a ispod. Oznake Checkpoint A–E koje se pojavljuju u
+> `docs/WORKLOG.md`/`docs/DECISIONS.md` su review/delivery checkpoint-i
+> korišćeni tokom implementacije jednog takvog toka. Ni naziv grane ni
+> Checkpoint oznake ne menjaju niti renumerišu product milestone brojeve
+> (Milestone 0–7) definisane u ovoj sekciji.
+
 ### Milestone 0 — Scaffold
 
 Deliver:

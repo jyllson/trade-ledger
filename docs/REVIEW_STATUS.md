@@ -1,8 +1,54 @@
 # REVIEW_STATUS — TradeLedger
 
-**Trenutni milestone:** Milestone 1 — API spike i fixtures
-**Status:** završen, PR #1 spreman za merge nakon code reviewa
-**Poslednje ažuriranje:** 2026-07-31
+**Trenutni milestone:** eToro domain-model sloj — implementaciona grana
+`milestone/2-etoro-domain-model` (Checkpoint A–E; vidi `docs/DECISIONS.md`
+D-018 za razliku između ovog naziva grane i product milestone numeracije u
+`PROJECT.md` §20)
+**Status:** domain-model implementacija završena i verifikovana;
+documentation closeout završen; grana je spremna za PR prema `main`,
+PR još nije otvoren
+**Poslednje ažuriranje:** 2026-08-06
+
+## Domain-model sloj — završeno
+
+- [x] exact value objects (`Money`, `Percentage`) — Checkpoint A
+- [x] `LivePortfolio` DTO/mapper (`LivePortfolioMapper`) — Checkpoint B
+- [x] `CopyCoverageCalculator` i request/result DTO-i — Checkpoint C
+- [x] `PerformanceHistory` mapper (`PerformanceHistoryMapper`) — Checkpoint D1
+- [x] `Rankings` mapper (`RankingsMapper`) — Checkpoint D2
+- [x] `TraderProfile` mapper (`TraderProfileMapper`) — Checkpoint D3
+- [x] `LivePortfolioCoverageAdapter` — Checkpoint E
+- [x] fixture-to-calculator pipeline (JSON fixture → mapper → adapter →
+      calculator), potvrđen na $200/$500/$1000 budžetima (vidi
+      `docs/WORKLOG.md` 2026-08-06)
+- [x] arhitektonske dependency provere (`App\Analytics` nezavisan od
+      `App\Etoro`; `App\Etoro` sme zavisiti od `App\Analytics`)
+
+## Domain-model sloj — trenutna verifikacija
+
+- `php artisan test`: **689 passed / 1809 assertions**, 0 failures
+- `vendor/bin/phpstan analyse` (level 7): 0 errors
+- `vendor/bin/pint --test`: prošao
+- Read-only zaštite (`EtoroWriteGuard`, arch testovi protiv write metoda u
+  `App\Etoro`) ostaju aktivne i pokrivene testovima
+
+## Domain-model sloj — sledeći korak
+
+1. Otvoriti i pregledati PR `milestone/2-etoro-domain-model` → `main`.
+2. Nakon merge-a planirati zaseban application/use-case orchestration
+   sloj koji povezuje `EtoroClient`, mappere, adapter i calculator (vidi
+   `docs/DECISIONS.md` D-019).
+
+**Napomena:** persistence, migracije, Eloquent modeli, Filament resursi,
+UI, polling i scheduling i dalje NISU implementirani ni u ovoj ni u
+prethodnoj grani.
+
+---
+
+## Istorija: Milestone 1 — API spike i fixtures
+
+**Status:** završen, PR #1 mergovan (vidi `docs/WORKLOG.md`)
+**Poslednje ažuriranje ove istorijske sekcije:** 2026-07-31
 
 ## Ispunjeni kriterijumi prihvatanja
 
@@ -116,11 +162,15 @@
   nedokumentovani (bez opisa u OpenAPI šemi) — ne koriste se ni u jednoj
   kalkulaciji.
 
-## Sledeći preporučeni korak
+## Sledeći preporučeni korak (istorijski, iz perioda pre PR #1 merge-a)
 
-1. Merge PR #1 u `main`.
-2. Kreiranje nove grane za Milestone 2.
-3. Milestone 2: DTO-i, mapperi i `CopyCoverageCalculator` zasnovani na
-   posmatranoj (i sintetičkim fixtures pokrivenoj) API šemi.
-4. Bez ponovnog live raw capture-a, osim ako se tokom Milestone 2 otkrije
-   konkretna schema rupa koja zahteva dodatni uvid u stvarni odgovor.
+1. ~~Merge PR #1 u `main`.~~ Završeno.
+2. ~~Kreiranje nove grane za Milestone 2.~~ Završeno — grana
+   `milestone/2-etoro-domain-model`.
+3. ~~Milestone 2: DTO-i, mapperi i `CopyCoverageCalculator` zasnovani na
+   posmatranoj (i sintetičkim fixtures pokrivenoj) API šemi.~~ **Završeno —
+   vidi sekciju "Domain-model sloj — završeno" na vrhu ovog dokumenta.**
+4. Bez ponovnog live raw capture-a, osim ako se tokom daljeg rada otkrije
+   konkretna schema rupa koja zahteva dodatni uvid u stvarni odgovor. Ovo
+   je i dalje na snazi — nijedan novi live capture nije izvršen tokom
+   domain-model implementacije.

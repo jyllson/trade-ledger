@@ -518,3 +518,61 @@ unutar već isključenih direktorijuma ne rade. Dodat autoritativan test
    `ETORO_BASE_URL` bez izmene koda.
 
 ---
+
+## D-018: Implementaciona nomenklatura — grana i Checkpoint oznake odvojene od product milestone numeracije
+
+**Datum:** 2026-08-06
+**Status:** dokumentacioni closeout, informativno
+
+**Kontekst:** Git grana `milestone/2-etoro-domain-model` i review/delivery
+oznake Checkpoint A–E korišćene tokom rada na njoj (u `docs/WORKLOG.md`)
+lako se mogu pobrkati sa numerisanim product milestone-ima definisanim u
+`PROJECT.md` §20 (Milestone 0–7).
+
+**Odluka:**
+
+- Naziv grane `milestone/2-etoro-domain-model` označava tehnički
+  implementation stream (eToro domain-model sloj: exact value objects,
+  eToro→domain mapperi, copy-coverage calculator, Etoro→Analytics
+  adapter), ne product milestone broj 2 iz `PROJECT.md`.
+- Checkpoint A–E su review/delivery jedinice korišćene tokom rada na ovoj
+  grani: A — exact Analytics value objects; B — eToro live portfolio
+  domain mapping; C — exact copy-coverage analytics; D1 — performance
+  history mapping; D2 — rankings mapping; D3 — trader profile mapping;
+  E — `LivePortfolioCoverageAdapter` i fixture pipeline.
+- Ova nomenklatura je potpuno odvojena od product milestone numeracije u
+  `PROJECT.md` §20 i ne menja, ne renumeriše niti reinterpretira postojeći
+  roadmap. Vidi napomenu dodatu u `PROJECT.md` §20.
+
+---
+
+## D-019: Granica završenog domain-model sloja (pred PR milestone/2-etoro-domain-model)
+
+**Datum:** 2026-08-06
+**Status:** dokumentacioni closeout, potvrđuje postojeću arhitekturu (bez izmene koda)
+
+**Kontekst:** Nakon Checkpoint E (commit `72894a9`) potrebno je eksplicitno
+zapisati tačnu granicu odgovornosti između `App\Analytics`, `App\Etoro` i
+budućeg application/use-case sloja, pre otvaranja PR-a prema `main`.
+
+**Odluka:**
+
+- `App\Analytics` ostaje nezavisan od `App\Etoro` — potvrđeno arhitektonskim
+  testovima na ovoj grani.
+- `App\Etoro` sme zavisiti od `App\Analytics` (npr. `Adapters` namespace).
+- `LivePortfolioCoverageAdapter` isključivo prevodi mapirane eToro domain
+  podatke (`LivePortfolio`, `PortfolioPosition`) u source-neutralne
+  Analytics request DTO-e (`CopyCoverageRequest`, `CoverageTargetRequest`).
+- Adapter ne poziva `CopyCoverageCalculator`.
+- Adapter ne sortira, ne filtrira niti deduplikuje pozicije — svaka
+  pozicija (uključujući nulte/negativne weight-ove i duplirane position
+  ID-jeve) prolazi nepromenjena, u originalnom redosledu, tako da
+  calculator-ova sopstvena detekcija data-quality upozorenja vidi pun,
+  netaknut snapshot.
+- Warnings i eligibility logika ostaju isključivo odgovornost
+  `CopyCoverageCalculator`-a, ne adaptera.
+- HTTP orkestracija, persistence, scheduling i UI ostaju van ove grane.
+- Sledeći praktični korak je zaseban application/use-case sloj koji
+  povezuje `EtoroClient`, mappere, adapter i calculator.
+
+---
