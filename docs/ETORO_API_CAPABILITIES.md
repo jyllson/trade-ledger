@@ -109,7 +109,7 @@ Svi testirani path-ovi poklopili su se sa onima navedenim u PROJECT.md §8
 `/api/v1/trading/info/{real,demo}/pnl`) — nema odstupanja u path-ovima za
 ove endpointe u odnosu na plan.
 
-### Sledeći koraci
+### Sledeći koraci (istorijski, iz Milestone 1)
 
 Selektivni capture javnih dataset-a (rankings, public profile, performance
 history, live portfolio) je **završen lokalno** — bez `/me` i bez
@@ -120,7 +120,51 @@ Na osnovu posmatrane šeme napravljeni su schema-faithful, **potpuno
 sintetički** fixtures u `tests/Fixtures/Etoro/` (leakage scan protiv svih
 raw fajlova prošao pre commit-a).
 
-Sledeći razvojni korak je Milestone 2: DTO-i, mapperi i
-`CopyCoverageCalculator` zasnovani na ovoj posmatranoj šemi. Dodatni live
-capture nije planiran osim ako se tokom te implementacije otkrije
-konkretna schema rupa koja zahteva dodatni uvid u stvarni odgovor.
+---
+
+## Development status (ažurirano 2026-08-06)
+
+Na grani `milestone/2-etoro-domain-model` (Checkpoint A–E, vidi
+`docs/DECISIONS.md` D-018/D-019) implementirano je, isključivo nad
+sintetičkim fixture-ima iz sekcije iznad — bez ijednog novog live API
+poziva:
+
+- sanitized fixture mapping za live portfolio (`LivePortfolioMapper`);
+- sanitized fixture mapping za performance history
+  (`PerformanceHistoryMapper`);
+- sanitized fixture mapping za rankings (`RankingsMapper`);
+- sanitized fixture mapping za public profile (`TraderProfileMapper`);
+- exact copy-coverage calculator (`CopyCoverageCalculator`, BCMath
+  aritmetika);
+- `LivePortfolioCoverageAdapter` (čista translacija eToro domain podataka
+  u Analytics request DTO-e — bez poziva calculator-a, bez sortiranja,
+  filtriranja ili deduplikacije pozicija);
+- fixture pipeline kroz calculator (JSON → mapper → adapter → calculator),
+  potvrđen na $200/$500/$1000 budžetima (vidi `docs/WORKLOG.md`
+  2026-08-06).
+
+### Bezbednosne i epistemološke ograde (i dalje važe)
+
+- `investmentPct` je jedino opaženo polje koje se trenutno koristi kao
+  allocation weight — ovo je radna/eksperimentalna interpretacija zasnovana
+  na ograničenom uzorku, **ne** potvrđen API ugovor.
+- `optimalCopyPosSize`, `avgPosSize`, realized/unrealized credit i druga
+  nejasna polja nisu korišćena ni u jednom mapperu ni u calculator-u.
+- `socialTrades` sadržaj nije modeliran — samo se broj prenosi kao
+  `unmodeledEntryCount` (vidi `LivePortfolioCoverageAdapter`).
+- Ovo nije finansijski savet.
+- Nijedan write API tok nije uveden.
+- Live API šema se i dalje smatra opaženom, ne zvanično potvrđenom ili
+  garantovano stabilnom — dokumentovana su samo dva live runa iz Milestone
+  1 (iznad); domain-model sloj je rađen isključivo nad sintetičkim
+  fixture-ima izvedenim iz tih runova, bez ijednog dodatnog live poziva.
+
+### Sledeći razvojni korak
+
+1. Otvoriti i pregledati PR za završeni domain-model stream
+   (`milestone/2-etoro-domain-model` → `main`).
+2. Nakon merge-a dizajnirati application orchestration sloj (koji povezuje
+   `EtoroClient`, mappere, adapter i calculator) odvojeno od pure domain
+   sloja — vidi `docs/DECISIONS.md` D-019. Dodatni live capture nije
+   planiran osim ako se tokom te implementacije otkrije konkretna schema
+   rupa koja zahteva dodatni uvid u stvarni odgovor.

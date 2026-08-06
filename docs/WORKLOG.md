@@ -622,3 +622,66 @@ Commit `aa0f493c5be01e2a302795386c44782b0b5d82f8` ("fix: address milestone
 - **GitHub Actions: zelen** nakon ovog push-a.
 
 ---
+
+## 2026-08-06 — Grana `milestone/2-etoro-domain-model`: domain-model sloj završen, documentation closeout
+
+Kroz sedam commit-ova na grani `milestone/2-etoro-domain-model` završen je
+eToro domain-model implementacioni stream (Checkpoint A–E; razlika u odnosu
+na product milestone numeraciju iz `PROJECT.md` dokumentovana u
+`docs/DECISIONS.md` D-018):
+
+1. `23837c3` feat: add exact analytics value objects (Checkpoint A) —
+   `Money` (signed integer cents) i `Percentage` (signed parts-per-billion)
+   value objects u `App\Analytics\ValueObjects`, sa arhitektonskim testom
+   koji potvrđuje izolaciju `App\Analytics` od `App\Etoro`.
+2. `081f69a` feat: add eToro live portfolio domain mapping (Checkpoint B) —
+   `LivePortfolio`/`PortfolioPosition` DTO-i, `LivePortfolioMapper`,
+   `Identifiers` helper, `EtoroMappingException`.
+3. `491f0c7` feat: add exact copy coverage analytics (Checkpoint C) —
+   `CopyCoverageCalculator` sa BCMath aritmetikom (exact arithmetic, bez
+   binary floating point), i request/result DTO-i (`CopyCoverageRequest`,
+   `CopyCoverageResult`, `CoverageTargetRequest`, `CoverageTargetResult`,
+   `CoverageWarning`, `PositionAllocation`, `PositionCoverageOutcome`,
+   `PositionSkipReason`).
+4. `c77a2bc` feat: map eToro performance history (Checkpoint D1) —
+   `PerformanceHistory`/`PerformancePoint` DTO-i i
+   `PerformanceHistoryMapper`.
+5. `ef1ebdf` feat: map eToro rankings (Checkpoint D2) —
+   `RankingEntry`/`RankingPage`/`RankingPagination` DTO-i i
+   `RankingsMapper`.
+6. `f88535d` feat: map eToro trader profile (Checkpoint D3) —
+   `TraderProfile` DTO i `TraderProfileMapper`.
+7. `72894a9` feat: add eToro copy coverage adapter (Checkpoint E) —
+   `LivePortfolioCoverageAdapter`, koji prevodi mapirani eToro live
+   portfolio u Analytics request DTO-e; fixture-to-calculator pipeline test
+   (JSON fixture → mapper → adapter → calculator).
+
+Ključne napomene:
+
+- `Money` koristi signed integer cents; `Percentage` koristi signed
+  parts-per-billion.
+- BCMath se koristi za exact calculator arithmetic.
+- Mapirani su live portfolio, performance history, rankings i trader
+  profile — isključivo nad sintetičkim fixture-ima iz `tests/Fixtures/Etoro/`
+  (bez ijednog novog live eToro API poziva).
+- Dodat je Etoro → Analytics adapter (`LivePortfolioCoverageAdapter`) —
+  čista translacija, bez pozivanja calculator-a, bez sortiranja,
+  filtriranja ili deduplikacije pozicija.
+- Dodat je fixture pipeline: JSON → mapper → adapter → calculator,
+  potvrđen na tri budžeta:
+  - $200: 13 eligible / 3 skipped / 99.3% pokrivenosti;
+  - $500: 15 eligible / 1 skipped / 99.9% pokrivenosti;
+  - $1000: 16 eligible / 0 skipped / 100% pokrivenosti.
+- Trenutni pun test suite: **689 testova / 1809 assertions / 0 failures**.
+- `vendor/bin/phpstan analyse` (level 7): **0 errors**.
+- Tokom Checkpoint A–E nije bilo novih live API poziva, raw capture-a,
+  izmena fixture fajlova niti write operacija — sav rad zasnovan je na već
+  postojećim sintetičkim fixture-ima iz Milestone 1.
+
+**Application/use-case orchestration sloj (EtoroClient + mapperi + adapter
++ calculator povezani u jedan tok) NIJE implementiran u ovoj grani** — vidi
+`docs/DECISIONS.md` D-019.
+
+Grana je nakon ovog documentation closeout-a spremna za PR prema `main`.
+
+---
