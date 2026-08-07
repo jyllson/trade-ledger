@@ -576,3 +576,126 @@ budućeg application/use-case sloja, pre otvaranja PR-a prema `main`.
   povezuje `EtoroClient`, mappere, adapter i calculator.
 
 ---
+
+## D-020: Granica orchestration sloja `App\Application`
+
+**Datum:** 2026-08-07
+**Status:** dokumentovano nakon implementacije Checkpoint A, bez izmene koda
+
+**Kontekst:** Checkpoint A (`b5ed34f`) dodao je
+`App\Application\Etoro\EvaluateTraderCopyCoverage` — prvi use case koji
+povezuje `EtoroClient`, `LivePortfolioMapper`, `LivePortfolioCoverageAdapter`
+i `CopyCoverageCalculator` u jedan tok. Potrebno je eksplicitno zapisati
+granicu odgovornosti ovog novog sloja pre otvaranja PR-a prema `main`.
+
+**Odluka:**
+
+- `App\Application` je orchestration sloj: povezuje postojeće `App\Etoro` i
+  `App\Analytics` komponente u use case-ove, ne dodaje sopstvenu domain ili
+  calculation logiku.
+- `App\Application` sme zavisiti od `App\Etoro` i `App\Analytics` —
+  potvrđeno arhitektonskim testom
+  (`tests/Feature/Application/EtoroApplicationArchitectureTest.php`) da
+  `App\Application\Etoro` ne referencira nijedan drugi `App\` namespace.
+- `App\Etoro` i `App\Analytics` ne smeju zavisiti od `App\Application` —
+  potvrđeno istim testom u obrnutom smeru.
+- Presentation sloj (CLI, a kasnije eventualno Filament/Livewire/web) poziva
+  `App\Application`, ne direktno `EtoroClient`/mapper/adapter/calculator.
+- `EvaluateTraderCopyCoverage::handle()` ne pravi HTTP request detalje (bez
+  Laravel HTTP klijenta, config/env, curl-a ili bilo kog transport poziva u
+  samom use case-u) — to ostaje isključivo odgovornost `EtoroClient`-a.
+- `EvaluateTraderCopyCoverage::handle()` ne mapira ručno payload — mapiranje
+  ostaje isključiva odgovornost `LivePortfolioMapper`-a.
+- `EvaluateTraderCopyCoverage::handle()` ne računa coverage ručno —
+  kalkulacija ostaje isključiva odgovornost `CopyCoverageCalculator`-a.
+- `LivePortfolioCoverageAdapter` ostaje prevodilac eToro domain podataka
+  (`LivePortfolio`) u Analytics request DTO-e (`CopyCoverageRequest`) — use
+  case ga poziva, ne dodaje mu logiku.
+- `CopyCoverageCalculator` ostaje jedini vlasnik coverage logike i
+  data-quality warning-a.
+- Use case ima tačno jedan logical eToro endpoint poziv po pozivu
+  (`userLivePortfolio()`); arhitektonski test potvrđuje da nijedan drugi
+  `EtoroClient` metod (`authenticatedUser`, `rankings`, `userProfile`,
+  `userPerformance`, `accountPnl`) nije pozvan iz
+  `EvaluateTraderCopyCoverage`.
+- Transport/mapping/calculation exception-i (`EtoroRequestException`,
+  `EtoroMappingException`, `CoverageCalculationException`, itd.) se ne
+  prevode u novu application-specific exception hijerarhiju — use case ih
+  propušta nepromenjene pozivaocu (potvrđeno testom da je uhvaćena instanca
+  identična bačenoj).
+- Nema posebnog `EtoroClientInterface`/gateway apstrakcije uvedene ovim
+  checkpoint-om — postojeći `EtoroClient` + `Http::fake()` u testovima već
+  daju dovoljnu testability granicu za trenutne potrebe. Ovo se može
+  revidirati kasnije ako broj use case-ova ili potreba za alternativnim
+  implementacijama to opravda.
+- Ova odluka ne uvodi persistence niti UI, i ne propisuje da ova tačna
+  struktura mora nepromenjena važiti za svaki budući `App\Application` use
+  case bez ponovnog razmatranja.
+
+---
+
+## D-021: CLI money i presentation granica (`etoro:copy-coverage`)
+
+**Datum:** 2026-08-07
+**Status:** dokumentovano nakon implementacije Checkpoint B, bez izmene koda
+
+**Kontekst:** Checkpoint B (`a053f99`) dodao je prvi interni CLI entry point
+za eToro copy coverage
+(`php artisan etoro:copy-coverage <trader-username> <copy-amount-cents>
+<minimum-position-cents>`). Potrebno je zapisati kako komanda tretira
+money/percentage vrednosti i gde prestaje njena nadležnost.
+
+**Odluka:**
+
+- Komanda prima money isključivo kao integer cente (`copy-amount-cents`,
+  `minimum-position-cents`) — nema decimal-string parsera u ovom
+  checkpoint-u.
+- Nema float/double konverzije bilo gde u komandi (`(float)`, `(double)`,
+  `floatval()`, `doubleval()`) — potvrđeno arhitektonskim testom. Ulazni
+  string se parsira regexom (`^-?\d+$`) i BCMath granicom (`bccomp` prema
+  `PHP_INT_MAX`/`PHP_INT_MIN`) pre bilo kog cast-a u `int`.
+- `Money` ostaje currency-neutral value object iz `App\Analytics` — komanda
+  ne dodaje currency semantiku. Nema hard-kodovanog `$`/`€`/`USD`/`EUR`
+  simbola bilo gde u izlazu; prikazani iznosi su formatirani samo kao
+  decimalni broj + cent vrednost u zagradi (npr. `200.00 (20000 cents)`).
+- Covered percentage se formatira exact iz parts-per-billion
+  (`Percentage::partsPerBillion()`) bez float konverzije — samo string
+  manipulacija (`substr`/`str_pad`/`rtrim`).
+- Parsing, range i sintaksna validacija ulaznih argumenata (blank username,
+  non-integer cents, integer overflow, negativan copy-amount, non-pozitivan
+  minimum-position) je presentation-level fail-fast/UX zaštita ove komande.
+  Za ove greške komanda vraća `FAILURE` pre bilo kakvog poziva use case-a —
+  `EvaluateTraderCopyCoverage` se ne poziva i HTTP zahtev se ne šalje.
+- Ova presentation-level provera sme proveravati isti constraint ranije (npr.
+  blank trader-username se presreće u komandi pre use case poziva), ali ne
+  uklanja, ne zamenjuje niti slabi odgovarajuću underlying/domain
+  invarijantu. Underlying invarijanta ostaje authoritative za bilo koji poziv
+  koji ne dolazi kroz ovu CLI komandu:
+  - `EtoroClient` poseduje sopstvenu username invarijantu
+    (`assertUsernameProvided`, blank username baca
+    `InvalidArgumentException`);
+  - `CopyCoverageRequest` poseduje sopstvene copy-amount (ne sme biti
+    negativan) i minimum-position-amount (mora biti strogo pozitivan) money
+    invarijante;
+  - `Money` poseduje samo sopstveni value-object ugovor i ne uvodi copy/
+    minimum-position business pravila.
+- Komanda zavisi isključivo od `EvaluateTraderCopyCoverage` kao business
+  dependency — nema direktne zavisnosti od `EtoroClient`,
+  `LivePortfolioMapper`, `LivePortfolioCoverageAdapter` ili
+  `CopyCoverageCalculator` (potvrđeno arhitektonskim testom).
+- Komanda ne dira mrežu, config/env, Storage/DB/Queue niti Filament/Livewire
+  sama — sve to ostaje u niže-slojnim komponentama koje
+  `EvaluateTraderCopyCoverage` orkestrira.
+- Komanda nema `--details` opciju u ovom checkpoint-u.
+- Operational exception-i (`EtoroConfigurationException`,
+  `EtoroRequestException`, `EtoroUnexpectedResponseException`,
+  `EtoroMappingException`, `CoverageCalculationException`) se prikazuju
+  sanitizovano — samo kategorija/status/request-id/transport-reason/errno
+  kada postoje, nikad originalna transport poruka, stack trace ili payload;
+  credential vrednosti se nikad ne pojavljuju u izlazu (potvrđeno
+  testovima).
+- Ova odluka ne predstavlja trajni javni UX ugovor za budući web UI —
+  currency-aware formatter/prikaz može biti zasebna buduća odluka ako se
+  pojavi stvarna potreba (npr. multi-currency support ili web prikaz).
+
+---

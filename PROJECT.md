@@ -431,6 +431,51 @@ app/
 - Store timestamps in UTC.
 - Display timestamps in `Europe/Malta`.
 
+### Current implementation status (updated 2026-08-07)
+
+The tree above is the target shape and does not yet exist in full. What is
+actually implemented today, in addition to the eToro domain-model layer
+(mappers, adapter, calculator — see `docs/DECISIONS.md` D-018/D-019), is a
+thin application orchestration layer and its console entry point:
+
+```text
+app/
+├── Application/
+│   └── Etoro/
+│       ├── EvaluateTraderCopyCoverage.php
+│       └── EvaluateTraderCopyCoverageResult.php
+└── Console/Commands/
+    ├── EtoroDoctorCommand.php
+    └── EtoroCopyCoverageCommand.php
+```
+
+Dependency direction (see `docs/DECISIONS.md` D-020):
+
+```text
+Console
+  ↓
+Application
+ ↙       ↘
+Etoro   Analytics
+```
+
+Within `App\Application\Etoro\EvaluateTraderCopyCoverage`, the existing
+eToro domain-model pipeline is unchanged:
+
+```text
+EtoroClient::userLivePortfolio()
+  → LivePortfolioMapper
+  → LivePortfolioCoverageAdapter
+  → CopyCoverageCalculator
+```
+
+This implementation stream did not add TradeLedger persistence,
+application-specific migrations/Eloquent models, new Filament application
+resources/pages, jobs, scheduling, or web/API routes. The repository's
+existing framework/default scaffold (e.g. the base `User` model/migrations
+and the base Filament panel provider) predates this stream and is unrelated
+to it.
+
 ---
 
 ## 10. HTTP client requirements

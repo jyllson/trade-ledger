@@ -685,3 +685,61 @@ Ključne napomene:
 Grana je nakon ovog documentation closeout-a spremna za PR prema `main`.
 
 ---
+
+## 2026-08-07 — Grana `feature/etoro-application-orchestration`: application orchestration sloj, documentation closeout
+
+Kroz dva commit-a implementiran je application orchestration sloj iznad
+postojećeg eToro domain-model sloja (D-018 dokumentuje razliku između
+naziva grane/Checkpoint oznaka i product milestone numeracije):
+
+1. `b5ed34f` feat: add application use case for evaluating trader copy
+   coverage (Checkpoint A) — `App\Application\Etoro\EvaluateTraderCopyCoverage`
+   i `EvaluateTraderCopyCoverageResult`. Use case ima tačno jedan logical
+   eToro endpoint poziv (`EtoroClient::userLivePortfolio()`) i povezuje
+   postojeći tok `LivePortfolioMapper → LivePortfolioCoverageAdapter →
+   CopyCoverageCalculator`, bez sopstvene HTTP, mapping ili calculation
+   logike. Arhitektonski test (`EtoroApplicationArchitectureTest`) potvrđuje
+   dependency smer (`App\Application` → `App\Etoro`/`App\Analytics`, nikad
+   obrnuto) i da se poziva isključivo `userLivePortfolio()`.
+2. `a053f99` feat: add etoro copy coverage console command (Checkpoint B) —
+   `php artisan etoro:copy-coverage <trader-username> <copy-amount-cents>
+   <minimum-position-cents>`; tanki presentation sloj koji zavisi isključivo
+   od `EvaluateTraderCopyCoverage`, prima money kao integer cente (bez float
+   konverzije bilo gde), formatira covered percentage exact iz
+   parts-per-billion, i prikazuje operational greške sanitizovano.
+   Arhitektonski test (`EtoroCopyCoverageCommandArchitectureTest`) potvrđuje
+   da komanda ne referencira `EtoroClient`/mapper/adapter/calculator direktno
+   i da nema `--details` opciju.
+
+Ključne napomene:
+
+- Produkcija: kad se `EvaluateTraderCopyCoverage` stvarno izvrši (npr. kroz
+  `etoro:copy-coverage` komandu), koristi postojeći
+  `EtoroClient::userLivePortfolio()` endpoint — nije uveden novi endpoint.
+  CLI poziva taj use case direktno.
+- Testovi/razvoj: tokom implementacije i review-a ovog stream-a nije
+  izvršen novi live capture/probe. Testovi oba checkpoint-a rade nad
+  postojećim sintetičkim `tests/Fixtures/Etoro/live-portfolio.json`
+  fixture-om i `Http::fake()`/mockovanim `EtoroClient` odgovorima; fixture
+  fajlovi nisu menjani.
+- Nema persistence, migracija, Eloquent modela, web/API ruta ili
+  Filament/Livewire UI-ja uvedenih u ovom stream-u.
+- Komanda ima tačno jedan integracioni test koji pokreće pun pipeline kroz
+  `Http::fake()` (fixture → mapper → adapter → calculator → CLI izlaz), plus
+  scenariji za validacione/operativne greške i data-quality warning prikaz
+  (`unmodeled_portfolio_entries_present`).
+- Dodate odluke D-020 (Application orchestration boundary) i D-021 (CLI
+  money and presentation boundary) u `docs/DECISIONS.md`.
+
+Finalna verifikacija (posle oba checkpoint-a, pre documentation closeout-a):
+
+```bash
+php artisan test --compact       # 738 passed, 2118 assertions
+vendor/bin/pint --test           # passed
+vendor/bin/phpstan analyse       # 0 errors
+```
+
+Grana je nakon ovog documentation closeout-a spremna za PR prema `main`; PR
+još nije otvoren.
+
+---

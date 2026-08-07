@@ -143,6 +143,45 @@ poziva:
   potvrđen na $200/$500/$1000 budžetima (vidi `docs/WORKLOG.md`
   2026-08-06).
 
+Ova grana (`milestone/2-etoro-domain-model`) je od tada mergovana u `main`
+kao PR #2 (commit `5a36aff`).
+
+### Ažuriranje 2026-08-07 — application orchestration i CLI konzumacija
+
+Na grani `feature/etoro-application-orchestration` (Checkpoint A–B, vidi
+`docs/DECISIONS.md` D-020/D-021) live portfolio endpoint je dobio:
+
+- application use case (`App\Application\Etoro\EvaluateTraderCopyCoverage`)
+  koji poziva isključivo `EtoroClient::userLivePortfolio()` — nijedan drugi
+  eToro endpoint metod;
+- read-only CLI entry point (`php artisan etoro:copy-coverage`) koji poziva
+  isključivo taj use case, bez direktnog pristupa transportu.
+
+Isti payload oblik i dalje prolazi kroz nepromenjeni tok: client → mapper
+(`LivePortfolioMapper`) → adapter (`LivePortfolioCoverageAdapter`) →
+calculator (`CopyCoverageCalculator`); use case i CLI dodaju orkestraciju i
+prikaz, ne novu interpretaciju payload-a.
+
+- CLI **ne uvodi novi live eToro endpoint** — konzumira isti
+  `/api/v1/user-info/people/{username}/portfolio/live` koji je već
+  dokumentovan iznad (Run #1/Run #2).
+- Produkcijski use case/CLI je sposoban da pozove postojeći live-portfolio
+  endpoint preko `EtoroClient`-a (kad se stvarno izvrši) — implementacija
+  nije dodala drugi/novi endpoint.
+- Tokom razvoja/testiranja/review-a ovog stream-a nije izvršen dodatni live
+  API poziv/capture. Testovi koji prolaze kroz eToro/application HTTP ili
+  integration pipeline koriste postojeći sintetički
+  `tests/Fixtures/Etoro/live-portfolio.json` fixture kroz `Http::fake()` ili
+  mockovan `EtoroClient`; architecture/source testovi ne zahtevaju live
+  payload.
+- Fixture fajlovi nisu menjani.
+- `socialTrades` i dalje ostaje unmodeled entry count
+  (`unmodeledEntryCount`) tamo gde je relevantno — CLI prikazuje njegovo
+  prisustvo samo kao data-quality upozorenje
+  (`unmodeled_portfolio_entries_present`), ne kao modelirani sadržaj.
+- Ambiguous polja (`avgPosSize`, `optimalCopyPosSize`, realized/unrealized
+  credit) i dalje se ne koriste ni u use case-u ni u CLI-ju.
+
 ### Bezbednosne i epistemološke ograde (i dalje važe)
 
 - `investmentPct` je jedino opaženo polje koje se trenutno koristi kao
@@ -156,15 +195,29 @@ poziva:
 - Nijedan write API tok nije uveden.
 - Live API šema se i dalje smatra opaženom, ne zvanično potvrđenom ili
   garantovano stabilnom — dokumentovana su samo dva live runa iz Milestone
-  1 (iznad); domain-model sloj je rađen isključivo nad sintetičkim
-  fixture-ima izvedenim iz tih runova, bez ijednog dodatnog live poziva.
+  1 (iznad). Od tih runova nije izvršen dodatni live schema capture/probe;
+  domain-model i application orchestration implementacija su razvijene i
+  testirane nad sintetičkim fixture-ima izvedenim iz tih runova. Production
+  use case i CLI (`EvaluateTraderCopyCoverage` preko `EtoroClient`) i dalje
+  koriste postojeći `userLivePortfolio()` endpoint kada se stvarno izvrše —
+  ovo nije ograničeno na fixtures.
+- Application/CLI implementacija (Checkpoint A–B) **ne čini eToro
+  semantiku** (npr. `investmentPct` kao allocation weight) **potvrđenijom
+  nego što je bila pre** — orkestracija i prikaz ne dodaju novi dokaz o
+  stabilnosti šeme.
 
 ### Sledeći razvojni korak
 
-1. Otvoriti i pregledati PR za završeni domain-model stream
-   (`milestone/2-etoro-domain-model` → `main`).
-2. Nakon merge-a dizajnirati application orchestration sloj (koji povezuje
+1. ~~Otvoriti i pregledati PR za završeni domain-model stream
+   (`milestone/2-etoro-domain-model` → `main`).~~ Završeno — mergovano kao
+   PR #2 (commit `5a36aff`).
+2. ~~Dizajnirati application orchestration sloj (koji povezuje
    `EtoroClient`, mappere, adapter i calculator) odvojeno od pure domain
-   sloja — vidi `docs/DECISIONS.md` D-019. Dodatni live capture nije
-   planiran osim ako se tokom te implementacije otkrije konkretna schema
-   rupa koja zahteva dodatni uvid u stvarni odgovor.
+   sloja.~~ Završeno — vidi "Ažuriranje 2026-08-07" iznad i
+   `docs/DECISIONS.md` D-020/D-021.
+3. Otvoriti i pregledati PR za `feature/etoro-application-orchestration` →
+   `main`.
+4. Dodatni live capture nije planiran osim ako se tokom daljeg rada otkrije
+   konkretna schema rupa koja zahteva dodatni uvid u stvarni odgovor — ovo
+   ostaje na snazi i nakon Checkpoint A–B (nijedan dodatan live poziv nije
+   izvršen).
