@@ -4,8 +4,10 @@
 implementaciona grana `feature/etoro-application-orchestration`
 (Checkpoint A–B; vidi `docs/DECISIONS.md` D-018 za razliku između naziva
 grane/Checkpoint oznaka i product milestone numeracije u `PROJECT.md` §20)
-**Status:** implementacija i documentation closeout završeni; grana je
-spremna za PR prema `main`, PR još nije otvoren
+**Status:** implementation stream `feature/etoro-application-orchestration`
+je završen. Implementacija i documentation closeout su isporučeni kroz PR #3
+(`feature/etoro-application-orchestration` → `main`) nakon uspešne CI/review
+verifikacije.
 **Poslednje ažuriranje:** 2026-08-07
 
 ## Application orchestration sloj — završeno
