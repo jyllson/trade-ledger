@@ -1,15 +1,79 @@
 # REVIEW_STATUS — TradeLedger
 
-**Trenutni milestone:** eToro domain-model sloj — implementaciona grana
-`milestone/2-etoro-domain-model` (Checkpoint A–E; vidi `docs/DECISIONS.md`
-D-018 za razliku između ovog naziva grane i product milestone numeracije u
-`PROJECT.md` §20)
-**Status:** domain-model implementacija završena i verifikovana;
-documentation closeout završen; grana je spremna za PR prema `main`,
-PR još nije otvoren
-**Poslednje ažuriranje:** 2026-08-06
+**Trenutni implementation stream:** eToro application orchestration sloj —
+implementaciona grana `feature/etoro-application-orchestration`
+(Checkpoint A–B; vidi `docs/DECISIONS.md` D-018 za razliku između naziva
+grane/Checkpoint oznaka i product milestone numeracije u `PROJECT.md` §20)
+**Status:** implementation stream `feature/etoro-application-orchestration`
+je završen. Implementacija i documentation closeout su isporučeni kroz PR #3
+(`feature/etoro-application-orchestration` → `main`) nakon uspešne CI/review
+verifikacije.
+**Poslednje ažuriranje:** 2026-08-07
 
-## Domain-model sloj — završeno
+## Application orchestration sloj — završeno
+
+- [x] `App\Application\Etoro\EvaluateTraderCopyCoverage` use case —
+      Checkpoint A (`EtoroClient::userLivePortfolio()` →
+      `LivePortfolioMapper` → `LivePortfolioCoverageAdapter` →
+      `CopyCoverageCalculator` → `EvaluateTraderCopyCoverageResult`)
+- [x] `EvaluateTraderCopyCoverageResult` DTO (`traderUsername`,
+      `requestId`, `CopyCoverageResult`) — Checkpoint A
+- [x] application arhitektonske provere (`App\Application` zavisi samo od
+      `App\Etoro`/`App\Analytics`; `App\Etoro`/`App\Analytics` ne zavise od
+      `App\Application`; tačno jedan `EtoroClient` metod pozvan) —
+      Checkpoint A
+- [x] fixture-backed integration pipeline test (JSON fixture → mapper →
+      adapter → calculator → use case, kroz container resolution i
+      `Http::fake()`) — Checkpoint A
+- [x] `php artisan etoro:copy-coverage` CLI komanda — Checkpoint B
+- [x] exact integer-cents parsing (regex + BCMath granica, bez float-a) —
+      Checkpoint B
+- [x] exact percentage formatting iz parts-per-billion (bez float-a) —
+      Checkpoint B
+- [x] sanitizovan prikaz operational grešaka
+      (kategorija/status/request-id/transport-reason/errno, nikad
+      originalna poruka/stack trace/payload/kredencijali) — Checkpoint B
+- [x] console arhitektonske provere (komanda ne referencira
+      `EtoroClient`/mapper/adapter/calculator direktno; nema `--details`
+      opciju; nema float konverzije) — Checkpoint B
+- [x] D-020 (Application orchestration boundary) i D-021 (CLI money and
+      presentation boundary) dodate u `docs/DECISIONS.md`
+
+## Application orchestration sloj — trenutna verifikacija
+
+- `php artisan test`: **738 passed / 2118 assertions**, 0 failures
+- `vendor/bin/phpstan analyse` (level 7): 0 errors
+- `vendor/bin/pint --test`: prošao
+- Read-only zaštite (`EtoroWriteGuard`, arch testovi protiv write metoda u
+  `App\Etoro`) ostaju aktivne i pokrivene testovima
+
+## Šta NIJE implementirano u ovom stream-u
+
+- target-coverage application use case (minimalni iznos za ciljanu
+  pokrivenost);
+- profile/performance/rankings application enrichment ili orchestration;
+- persistence, migracije, Eloquent modeli;
+- web/controller/API ruta;
+- Filament/Livewire UI;
+- scheduling/polling/queue;
+- `--details` CLI opcija.
+
+## Application orchestration sloj — sledeći korak
+
+1. Otvoriti i pregledati PR `feature/etoro-application-orchestration` →
+   `main`.
+2. Nakon merge-a razmotriti sledeći use case (npr. target-coverage) ili
+   presentation kanal, u skladu sa stvarnim prioritetom iz `PROJECT.md`.
+
+---
+
+## Istorija: eToro domain-model sloj (`milestone/2-etoro-domain-model`)
+
+**Status:** završeno, mergovano u `main` kao PR #2 (commit `5a36aff`,
+"feat: add eToro domain model and copy coverage analytics (#2)")
+**Poslednje ažuriranje ove istorijske sekcije:** 2026-08-07
+
+### Domain-model sloj — završeno
 
 - [x] exact value objects (`Money`, `Percentage`) — Checkpoint A
 - [x] `LivePortfolio` DTO/mapper (`LivePortfolioMapper`) — Checkpoint B
@@ -24,24 +88,17 @@ PR još nije otvoren
 - [x] arhitektonske dependency provere (`App\Analytics` nezavisan od
       `App\Etoro`; `App\Etoro` sme zavisiti od `App\Analytics`)
 
-## Domain-model sloj — trenutna verifikacija
+### Domain-model sloj — verifikacija na kraju grane
 
-- `php artisan test`: **689 passed / 1809 assertions**, 0 failures
+- `php artisan test`: 689 passed / 1809 assertions, 0 failures
 - `vendor/bin/phpstan analyse` (level 7): 0 errors
 - `vendor/bin/pint --test`: prošao
-- Read-only zaštite (`EtoroWriteGuard`, arch testovi protiv write metoda u
-  `App\Etoro`) ostaju aktivne i pokrivene testovima
 
-## Domain-model sloj — sledeći korak
-
-1. Otvoriti i pregledati PR `milestone/2-etoro-domain-model` → `main`.
-2. Nakon merge-a planirati zaseban application/use-case orchestration
-   sloj koji povezuje `EtoroClient`, mappere, adapter i calculator (vidi
-   `docs/DECISIONS.md` D-019).
-
-**Napomena:** persistence, migracije, Eloquent modeli, Filament resursi,
-UI, polling i scheduling i dalje NISU implementirani ni u ovoj ni u
-prethodnoj grani.
+**Napomena:** application/use-case orchestration sloj koji povezuje
+`EtoroClient`, mappere, adapter i calculator NIJE bio implementiran u ovoj
+grani (vidi D-019) — implementiran je kasnije na grani
+`feature/etoro-application-orchestration` (Checkpoint A–B, vidi sekciju na
+vrhu ovog dokumenta).
 
 ---
 
