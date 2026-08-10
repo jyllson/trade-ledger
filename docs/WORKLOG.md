@@ -743,3 +743,81 @@ Grana je nakon ovog documentation closeout-a spremna za PR prema `main`; PR
 još nije otvoren.
 
 ---
+
+## 2026-08-10 — Grana `feature/etoro-target-coverage`: target-copy coverage application + CLI, documentation closeout
+
+Kroz dva commit-a implementiran je target-copy coverage application use case
+i njegov CLI konzument, iznad postojećeg eToro domain-model sloja (base
+`origin/main` pre ovog stream-a: `b2e1c3d`, "feat: add eToro application
+orchestration and copy coverage CLI", PR #3):
+
+1. `e59a756` feat: add application use case for target copy coverage
+   (Checkpoint A) —
+   `App\Application\Etoro\FindTraderMinimumCopyAmountForCoverage` i
+   `FindTraderMinimumCopyAmountForCoverageResult`. Use case ima tačno jedan
+   logical eToro endpoint poziv (`EtoroClient::userLivePortfolio()`) i
+   povezuje postojeći tok `LivePortfolioMapper →
+   LivePortfolioCoverageAdapter::toCoverageTargetRequest() →
+   CopyCoverageCalculator::minimumAmountForCoverage()`, bez sopstvene HTTP,
+   mapping ili calculation logike — isti dependency-direction obrazac kao
+   `EvaluateTraderCopyCoverage` (D-020).
+2. `37460f9` feat: add target copy coverage console command (Checkpoint B) —
+   `php artisan etoro:copy-target <trader-username>
+   <target-coverage-percent> <minimum-position-cents>
+   <platform-minimum-copy-cents>`; tanki presentation sloj koji zavisi
+   isključivo od `FindTraderMinimumCopyAmountForCoverage`.
+
+Ključne napomene:
+
+- **Application capability:** `FindTraderMinimumCopyAmountForCoverage`
+  prosleđuje `Percentage targetCoverage`, `Money minimumPositionAmount` i
+  `Money platformMinimumCopyAmount` do
+  `CopyCoverageCalculator::minimumAmountForCoverage()` preko
+  `LivePortfolioCoverageAdapter::toCoverageTargetRequest()`; ne dodaje
+  sopstvenu domain/calculation logiku (isti obrazac kao D-020).
+- **CLI capability i percentage-points semantika:**
+  `target-coverage-percent` je human-facing percentage-points decimalni
+  string (`95` = 95%, `95.5` = 95.5%, `0.05` = 0.05% — NIKAD `0.05` = 5%),
+  parsiran exact/string-only (regex `^\d{1,3}(?:\.\d{1,7})?$` + BCMath
+  kompozicija u PPB, bez float-a), rezolucija do 7 decimalnih mesta,
+  validan opseg strogo `> 0` i `<= 100`. Detaljan ugovor u
+  `docs/DECISIONS.md` D-023.
+- **Target semantics:** target coverage je relativan prema
+  `positiveObservedWeight` (zbir strogo pozitivnih weight-ova), ne prema
+  nominalnom 100% ukupnom weight-u; negativne pozicije se izuzimaju iz
+  denominator-a i postavljaju `hasIncompleteSourceData=true`; nulte pozicije
+  se izuzimaju iz denominator-a ali ne postavljaju taj flag; odsustvo
+  pozitivnih pozicija samo po sebi ne postavlja `hasIncompleteSourceData`.
+  Ovo ponašanje potiče iz `CopyCoverageCalculator` (Checkpoint C grane
+  `milestone/2-etoro-domain-model`, već mergovano u `main` kao PR #2) i nije
+  menjano ovim stream-om — prvi put je učinjeno application/CLI-dostupnim.
+  Formalizovano u `docs/DECISIONS.md` D-022.
+- Produkcija: kad se `FindTraderMinimumCopyAmountForCoverage` stvarno
+  izvrši (npr. kroz `etoro:copy-target` komandu), koristi postojeći
+  `EtoroClient::userLivePortfolio()` endpoint — nije uveden novi endpoint.
+- Testovi/razvoj: tokom implementacije i review-a ovog stream-a nije
+  izvršen novi live capture/probe. Testovi oba checkpoint-a koji prolaze
+  kroz HTTP/application pipeline koriste postojeći sintetički
+  `tests/Fixtures/Etoro/live-portfolio.json` fixture kroz `Http::fake()`
+  ili mockovan `EtoroClient`; fixture fajlovi nisu menjani. (Ovo se odnosi
+  na testove koji stvarno prolaze kroz taj pipeline — arhitektonski/source
+  testovi u ovom stream-u ne zahtevaju fixture jer refleksijom proveravaju
+  oblik klasa, ne runtime ponašanje.)
+- Nema persistence, migracija, Eloquent modela, web/API ruta ili
+  Filament/Livewire UI-ja uvedenih u ovom stream-u.
+- Dodate odluke D-022 (Target coverage semantics — `positiveObservedWeight`)
+  i D-023 (CLI `target-coverage-percent` input contract) u
+  `docs/DECISIONS.md`.
+
+Finalna verifikacija (posle oba checkpoint-a, pre documentation closeout-a):
+
+```bash
+php artisan test --compact       # 819 passed, 2504 assertions
+vendor/bin/pint --test           # passed
+vendor/bin/phpstan analyse       # 0 errors
+```
+
+Grana je nakon ovog documentation closeout-a spremna za PR prema `main`; PR
+još nije otvoren.
+
+---

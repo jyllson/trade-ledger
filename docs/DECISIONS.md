@@ -699,3 +699,123 @@ money/percentage vrednosti i gde prestaje njena nadležnost.
   pojavi stvarna potreba (npr. multi-currency support ili web prikaz).
 
 ---
+
+## D-022: Target coverage semantics — relativno prema `positiveObservedWeight`
+
+**Datum:** 2026-08-10
+**Status:** formalizacija postojećeg calculator ponašanja, bez izmene koda; prvi put dostupno preko application/CLI sloja kroz `feature/etoro-target-coverage`
+
+**Kontekst:** `CopyCoverageCalculator::minimumAmountForCoverage()`,
+`CoverageTargetRequest` i `CoverageTargetResult` su implementirani ranije, u
+Checkpoint C grane `milestone/2-etoro-domain-model` (commit `491f0c7`,
+mergovano u `main` kao PR #2). Ovaj stream (`feature/etoro-target-coverage`,
+Checkpoint A `App\Application\Etoro\FindTraderMinimumCopyAmountForCoverage` i
+Checkpoint B `php artisan etoro:copy-target`) ne menja to ponašanje — samo ga
+prvi put čini dostupnim application/CLI konzumentima. Ponašanje dosad nije
+imalo sopstveni decision zapis; ova odluka ga formalizuje sada, jer postaje
+consumer-facing ugovor.
+
+**Odluka (zapis postojećeg, testovima potvrđenog ponašanja):**
+
+- Target coverage (`targetCoverage`/`targetRatio`) je relativan prema
+  `positiveObservedWeight` — zbiru weight-a isključivo pozicija sa strogo
+  pozitivnim weight-om u posmatranom snapshot-u — a NE prema nominalnom
+  `Percentage::whole()` (100%) ukupnom weight-u pozicija.
+- Pozicije sa negativnim weight-om se izuzimaju iz denominator-a I postavljaju
+  `hasIncompleteSourceData=true`.
+- Pozicije sa nultim weight-om se izuzimaju iz denominator-a ali NE
+  postavljaju `hasIncompleteSourceData=true` same po sebi.
+- `hasIncompleteSourceData` zavisi isključivo od: `unmodeledEntryCount > 0`
+  ILI prisustva bar jedne negativno-weighted pozicije. Odsustvo pozitivnih
+  pozicija samo po sebi (npr. prazan snapshot, ili snapshot sa isključivo
+  nultim weight-ovima i bez unmodeled entries) NE postavlja
+  `hasIncompleteSourceData=true` — takav rezultat je legitimno "kompletan ali
+  prazan/nepokriv", ne "nepotpun".
+- Kad nema pozitivnih pozicija, `CoverageTargetResult` legitimno vraća
+  `null` za `mathematicalMinimumCopyAmount`, `effectiveMinimumCopyAmount`,
+  `achievedRatio` i `coveredRawWeight` (grupna all-or-nothing invarijanta u
+  konstruktoru — sva četiri su ili svi `null` ili svi ne-`null`).
+  `hasIncompleteSourceData` u tom slučaju i dalje zavisi isključivo od gornjeg
+  pravila, ne od samog null-rezultata.
+- Zaokruživanje: target apsolutni breakpoint i breakpoint svake pojedinačne
+  pozicije koriste ceiling (`ceil`) BCMath deljenje; `achievedRatio` koristi
+  floor/truncating BCMath deljenje. Ova asimetrija je namerna i testovima
+  potvrđena.
+- `effectiveMinimumCopyAmount = max(mathematicalMinimumCopyAmount,
+  platformMinimumCopyAmount)` — platform minimum floor može legitimno
+  podići postignutu (`achievedRatio`) pokrivenost iznad ciljane.
+- Observed weight anomalije (negative weight, duplicate position id,
+  unmodeled entries, zbir weight-ova različit od nominalnog whole-a,
+  odsustvo pozitivnih pozicija) se signaliziraju kroz postojeći
+  `CoverageWarning` contract. Negative weight i `unmodeledEntryCount > 0`
+  dodatno postavljaju `hasIncompleteSourceData` (vidi tačke iznad) — ovo
+  nije u koliziji sa `CoverageWarning` signalizacijom, već dodatni,
+  paralelni signal. Nijedna od ovih anomalija ne menja denominator
+  semantiku target coverage-a: denominator ostaje isključivo zbir strogo
+  pozitivnih weight-ova, bez obzira na to koji su warning-i/flag-ovi
+  postavljeni.
+
+**Posledice:** `App\Analytics\Data\CoverageTargetRequest` već nosi ovaj
+ugovor kao doc-comment na klasi; ova odluka ga podiže na nivo formalnog
+decision zapisa jer je od `feature/etoro-target-coverage` nadalje
+consumer-facing (application use case i `etoro:copy-target` CLI).
+
+---
+
+## D-023: CLI `target-coverage-percent` input contract (`etoro:copy-target`)
+
+**Datum:** 2026-08-10
+**Status:** dokumentovano nakon implementacije Checkpoint B, bez izmene koda
+
+**Kontekst:** Checkpoint B (`37460f9`) grane `feature/etoro-target-coverage`
+dodao je `php artisan etoro:copy-target <trader-username>
+<target-coverage-percent> <minimum-position-cents>
+<platform-minimum-copy-cents>`. Za razliku od `etoro:copy-coverage`
+(D-021), ova komanda prima i target-coverage argument koji nije novčani
+iznos, već procenat — potreban je poseban decision zapis za njegov ulazni
+ugovor; D-021 ga ne pokriva jer `etoro:copy-coverage` nema ekvivalentan
+argument.
+
+**Odluka:**
+
+- `target-coverage-percent` je human-facing **percentage-points** decimalni
+  string, NE `0-1` razlomak: `95` znači 95%, `95.5` znači 95.5%, `0.05`
+  znači 0.05% (ne 5%).
+- Parsing je exact/string-only: sintaksna validacija regex-om
+  `^\d{1,3}(?:\.\d{1,7})?$`, zatim BCMath kompozicija
+  (`bcadd(bcmul($wholePart, '10000000', 0), $fractionPadded, 0)`) u
+  parts-per-billion (PPB) reprezentaciju koju koristi `Percentage`. Nema
+  `(float)`/`floatval()`/`round()` bilo gde u parsiranju.
+- Rezolucija: do 7 decimalnih mesta percentage points (npr.
+  `95.0000001` je validno, `95.12345678` nije — više od 7 decimala se
+  odbija).
+- Validan opseg: strogo `> 0` i `<= 100` (percentage points; u PPB terminima
+  `0 < ppb <= 1_000_000_000`). `100` i `100.0000000` su oba validna i
+  prikazuju se kao `100%` (trailing nula u frakciji se u potpunosti trimuje,
+  uključujući decimalnu tačku).
+- Odbijeno bez mrežnog poziva: `0`, vrednosti iznad `100`, negativan predznak,
+  eksplicitan `+` predznak, trailing tačka bez frakcijskih cifara (`95.`),
+  leading tačka bez celobrojnih cifara (`.95`), scientific notation (`1e2`),
+  zarez kao decimalni separator (`95,5`), i bilo koji ne-numerički ulaz.
+- Ova komanda zavisi isključivo od
+  `App\Application\Etoro\FindTraderMinimumCopyAmountForCoverage` — nema
+  direktne zavisnosti od `EtoroClient`/mapper/adapter/calculator
+  (potvrđeno arhitektonskim testom, isti obrazac kao D-021 za
+  `etoro:copy-coverage`).
+- `minimum-position-cents` i `platform-minimum-copy-cents` koriste isti
+  integer-cents/BCMath parsing contract kao `etoro:copy-coverage` (D-021):
+  regex `^-?\d+$`, BCMath granica prema `PHP_INT_MAX`/`PHP_INT_MIN` pre
+  cast-a, bez float-a. `minimum-position-cents` mora biti strogo pozitivan;
+  `platform-minimum-copy-cents` sme biti nula ali ne negativan.
+- Komanda prikazuje odvojeno "Mathematical minimum copy" i "Effective
+  minimum copy", i koristi termin "Covered observed weight" — nikad ne
+  tvrdi "total portfolio coverage" (vidi D-022 za zašto je razlika
+  značajna). Null target-result vrednosti (mathematical/effective minimum,
+  achieved coverage, covered observed weight) se prikazuju kao `N/A`, bez
+  izmišljanja "impossible" ili `isAchievable` domain state-a koji ne
+  postoji u `CoverageTargetResult`.
+- Operational exception-i se prikazuju sanitizovano, istim obrascem kao
+  `etoro:copy-coverage` (D-021) — kategorija/status/request-id/transport
+  detalji, nikad originalna poruka/stack trace/payload/kredencijali.
+
+---

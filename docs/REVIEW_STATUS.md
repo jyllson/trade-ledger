@@ -1,16 +1,88 @@
 # REVIEW_STATUS — TradeLedger
 
-**Trenutni implementation stream:** eToro application orchestration sloj —
-implementaciona grana `feature/etoro-application-orchestration`
-(Checkpoint A–B; vidi `docs/DECISIONS.md` D-018 za razliku između naziva
-grane/Checkpoint oznaka i product milestone numeracije u `PROJECT.md` §20)
-**Status:** implementation stream `feature/etoro-application-orchestration`
-je završen. Implementacija i documentation closeout su isporučeni kroz PR #3
-(`feature/etoro-application-orchestration` → `main`) nakon uspešne CI/review
-verifikacije.
-**Poslednje ažuriranje:** 2026-08-07
+**Trenutni implementation stream:** eToro target-copy coverage —
+implementaciona grana `feature/etoro-target-coverage` (Checkpoint A–B; vidi
+`docs/DECISIONS.md` D-018 za razliku između naziva grane/Checkpoint oznaka i
+product milestone numeracije u `PROJECT.md` §20)
+**Status:** implementation stream `feature/etoro-target-coverage` je
+implementaciono završen (Checkpoint A: application use case; Checkpoint B:
+read-only CLI). Documentation closeout je pripremljen; stream je spreman za
+delivery/integration preko pull request-a prema `main`.
+**Poslednje ažuriranje:** 2026-08-10
 
-## Application orchestration sloj — završeno
+## Target-copy coverage sloj — završeno
+
+- [x] `App\Application\Etoro\FindTraderMinimumCopyAmountForCoverage` use
+      case — Checkpoint A (`EtoroClient::userLivePortfolio()` →
+      `LivePortfolioMapper` →
+      `LivePortfolioCoverageAdapter::toCoverageTargetRequest()` →
+      `CopyCoverageCalculator::minimumAmountForCoverage()` →
+      `FindTraderMinimumCopyAmountForCoverageResult`)
+- [x] `FindTraderMinimumCopyAmountForCoverageResult` DTO (`traderUsername`,
+      `requestId`, `coverageTarget: CoverageTargetResult`) — Checkpoint A
+- [x] application arhitektonske provere (dependency smer nepromenjen, tačno
+      jedan `EtoroClient` metod pozvan, transport/mapping/calculation
+      exception-i propagirani nepromenjeni) — Checkpoint A
+- [x] fixture-backed integration pipeline test (JSON fixture → mapper →
+      adapter → calculator → use case) i test da se "no-positive-position"
+      domain rezultat propagira nepromenjen (bez reinterpretacije) —
+      Checkpoint A
+- [x] `php artisan etoro:copy-target` CLI komanda — Checkpoint B
+- [x] exact percentage-points parser (regex + BCMath, do 7 decimalnih
+      mesta, bez float-a) — Checkpoint B
+- [x] exact integer-cents parsing za minimum-position/platform-minimum,
+      isti obrazac kao `etoro:copy-coverage` — Checkpoint B
+- [x] odvojen prikaz Mathematical minimum copy / Effective minimum copy i
+      termin "Covered observed weight" (ne "total portfolio coverage") —
+      Checkpoint B
+- [x] `N/A` prikaz null target-result vrednosti bez izmišljenog
+      "impossible"/`isAchievable` domain state-a — Checkpoint B
+- [x] sanitizovan prikaz operational grešaka (isti obrazac kao
+      `etoro:copy-coverage`) — Checkpoint B
+- [x] console arhitektonske provere (komanda ne referencira
+      `EtoroClient`/mapper/adapter/calculator direktno; nema `--details`
+      opciju; nema float konverzije) — Checkpoint B
+- [x] D-022 (Target coverage semantics — `positiveObservedWeight`) i D-023
+      (CLI `target-coverage-percent` input contract) dodate u
+      `docs/DECISIONS.md`
+
+## Target-copy coverage sloj — trenutna verifikacija
+
+- `php artisan test`: **819 passed / 2504 assertions**, 0 failures (1
+  poznato, nepovezano upozorenje)
+- `vendor/bin/phpstan analyse` (level 7): 0 errors
+- `vendor/bin/pint --test`: prošao
+- Read-only zaštite (`EtoroWriteGuard`, arch testovi protiv write metoda u
+  `App\Etoro`) ostaju aktivne i pokrivene testovima
+
+## Šta NIJE implementirano u ovom stream-u
+
+- persistence, migracije, Eloquent modeli;
+- Filament/Livewire target simulator UI;
+- multi-trader comparison;
+- scheduled collection;
+- profile/performance/rankings application orchestration;
+- write eToro operacije (namerno zabranjene read-only politikom projekta —
+  vidi PROJECT.md §2/§6.2/§17 — ne backlog stavka koja čeka
+  implementaciju);
+- `--details` CLI opcija.
+
+## Target-copy coverage sloj — sledeći korak
+
+1. Otvoriti i pregledati PR `feature/etoro-target-coverage` → `main`.
+2. Nakon merge-a razmotriti sledeći korak (npr. persistence sloj ili
+   Filament/Livewire simulator UI) u skladu sa stvarnim prioritetom iz
+   `PROJECT.md`.
+
+---
+
+## Istorija: eToro application orchestration sloj (`feature/etoro-application-orchestration`)
+
+**Status:** završeno, mergovano u `main` kao PR #3 (commit `b2e1c3d`, "feat:
+add eToro application orchestration and copy coverage CLI")
+**Poslednje ažuriranje ove istorijske sekcije:** 2026-08-10
+
+### Application orchestration sloj — završeno
 
 - [x] `App\Application\Etoro\EvaluateTraderCopyCoverage` use case —
       Checkpoint A (`EtoroClient::userLivePortfolio()` →
@@ -39,31 +111,26 @@ verifikacije.
 - [x] D-020 (Application orchestration boundary) i D-021 (CLI money and
       presentation boundary) dodate u `docs/DECISIONS.md`
 
-## Application orchestration sloj — trenutna verifikacija
+### Application orchestration sloj — verifikacija na kraju grane
 
-- `php artisan test`: **738 passed / 2118 assertions**, 0 failures
+- `php artisan test`: 738 passed / 2118 assertions, 0 failures
 - `vendor/bin/phpstan analyse` (level 7): 0 errors
 - `vendor/bin/pint --test`: prošao
 - Read-only zaštite (`EtoroWriteGuard`, arch testovi protiv write metoda u
   `App\Etoro`) ostaju aktivne i pokrivene testovima
 
-## Šta NIJE implementirano u ovom stream-u
+**Napomena:** target-coverage application use case NIJE bio implementiran u
+ovoj grani (bio je naveden kao sledeći korak) — implementiran je kasnije na
+grani `feature/etoro-target-coverage` (Checkpoint A–B, vidi sekciju na vrhu
+ovog dokumenta).
 
-- target-coverage application use case (minimalni iznos za ciljanu
-  pokrivenost);
-- profile/performance/rankings application enrichment ili orchestration;
-- persistence, migracije, Eloquent modeli;
-- web/controller/API ruta;
-- Filament/Livewire UI;
-- scheduling/polling/queue;
-- `--details` CLI opcija.
+### Application orchestration sloj — sledeći korak (istorijski)
 
-## Application orchestration sloj — sledeći korak
-
-1. Otvoriti i pregledati PR `feature/etoro-application-orchestration` →
-   `main`.
-2. Nakon merge-a razmotriti sledeći use case (npr. target-coverage) ili
-   presentation kanal, u skladu sa stvarnim prioritetom iz `PROJECT.md`.
+1. ~~Otvoriti i pregledati PR `feature/etoro-application-orchestration` →
+   `main`.~~ Završeno — mergovano kao PR #3 (commit `b2e1c3d`).
+2. ~~Nakon merge-a razmotriti sledeći use case (npr. target-coverage) ili
+   presentation kanal.~~ Završeno — vidi `feature/etoro-target-coverage`
+   sekciju na vrhu ovog dokumenta.
 
 ---
 
