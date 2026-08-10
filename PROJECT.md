@@ -431,22 +431,25 @@ app/
 - Store timestamps in UTC.
 - Display timestamps in `Europe/Malta`.
 
-### Current implementation status (updated 2026-08-07)
+### Current implementation status (updated 2026-08-10)
 
 The tree above is the target shape and does not yet exist in full. What is
 actually implemented today, in addition to the eToro domain-model layer
 (mappers, adapter, calculator — see `docs/DECISIONS.md` D-018/D-019), is a
-thin application orchestration layer and its console entry point:
+thin application orchestration layer and its console entry points:
 
 ```text
 app/
 ├── Application/
 │   └── Etoro/
 │       ├── EvaluateTraderCopyCoverage.php
-│       └── EvaluateTraderCopyCoverageResult.php
+│       ├── EvaluateTraderCopyCoverageResult.php
+│       ├── FindTraderMinimumCopyAmountForCoverage.php
+│       └── FindTraderMinimumCopyAmountForCoverageResult.php
 └── Console/Commands/
     ├── EtoroDoctorCommand.php
-    └── EtoroCopyCoverageCommand.php
+    ├── EtoroCopyCoverageCommand.php
+    └── EtoroCopyTargetCommand.php
 ```
 
 Dependency direction (see `docs/DECISIONS.md` D-020):
@@ -459,7 +462,8 @@ Application
 Etoro   Analytics
 ```
 
-Within `App\Application\Etoro\EvaluateTraderCopyCoverage`, the existing
+Within `App\Application\Etoro\EvaluateTraderCopyCoverage` and
+`App\Application\Etoro\FindTraderMinimumCopyAmountForCoverage`, the existing
 eToro domain-model pipeline is unchanged:
 
 ```text
@@ -469,12 +473,43 @@ EtoroClient::userLivePortfolio()
   → CopyCoverageCalculator
 ```
 
-This implementation stream did not add TradeLedger persistence,
-application-specific migrations/Eloquent models, new Filament application
-resources/pages, jobs, scheduling, or web/API routes. The repository's
-existing framework/default scaffold (e.g. the base `User` model/migrations
-and the base Filament panel provider) predates this stream and is unrelated
-to it.
+`FindTraderMinimumCopyAmountForCoverage` additionally accepts a target
+coverage percentage, a minimum position amount, and a platform minimum copy
+amount, and calls `CopyCoverageCalculator::minimumAmountForCoverage()`
+instead of `evaluate()`. Target coverage is relative to the snapshot's
+positive observed weight, not to the nominal 100% total — see
+`docs/DECISIONS.md` D-022. Its console entry point, `etoro:copy-target`,
+takes the target as a human-facing percentage-points decimal string, parsed
+exactly (no float) — see `docs/DECISIONS.md` D-023.
+
+Neither this stream nor the earlier application-orchestration stream added
+TradeLedger persistence, application-specific migrations/Eloquent models,
+new Filament application resources/pages, jobs, scheduling, or web/API
+routes. The repository's existing framework/default scaffold (e.g. the base
+`User` model/migrations and the base Filament panel provider) predates both
+streams and is unrelated to them.
+
+This stream completes, via a one-off CLI call against the live API, only
+the calculation portion of one Milestone 4 (§20) deliverable — "minimum
+amount for coverage targets." Milestone 4 as defined in §20 is not
+complete: its remaining deliverables are a persistence-backed live
+portfolio importer, `instruments`/`portfolio_snapshots` storage,
+concentration metrics, and a copy fidelity simulator meeting the §20
+acceptance criteria (each skipped position explained; $200/$500/$1,000
+presets; 90/95/99/100% target calculations; results reproducible from a
+stored snapshot) — none of which this stream adds. §20 does not name a
+specific UI technology for the simulator deliverable, so this gap should
+not be described as "missing Filament/Livewire" specifically; only that no
+persistence-backed, preset-driven, reproducible simulator exists yet.
+
+Other roadmap capabilities that also remain unimplemented belong to
+different milestones, not Milestone 4: profile/performance analytics
+(Milestone 3), multi-trader comparison (Milestone 5), and
+scheduled/queued collection (§16, cross-cutting infrastructure for
+Milestones 2 and 6). Write eToro operations are not an unfinished roadmap
+item at all — they are intentionally prohibited by the project's
+read-only-by-design policy (§2, §6.2, §17), not a backlog capability
+awaiting implementation.
 
 ---
 

@@ -206,6 +206,58 @@ prikaz, ne novu interpretaciju payload-a.
   nego što je bila pre** — orkestracija i prikaz ne dodaju novi dokaz o
   stabilnosti šeme.
 
+### Ažuriranje 2026-08-10 — target-copy coverage application/CLI konzumacija
+
+Na grani `feature/etoro-target-coverage` (Checkpoint A–B, vidi
+`docs/DECISIONS.md` D-022/D-023) live portfolio endpoint je dobio dodatni
+konzumentski put, iznad `feature/etoro-application-orchestration` stream-a
+koji je u međuvremenu mergovan u `main` kao PR #3 (commit `b2e1c3d`):
+
+- application use case
+  (`App\Application\Etoro\FindTraderMinimumCopyAmountForCoverage`) koji
+  poziva isključivo `EtoroClient::userLivePortfolio()` — nijedan drugi
+  eToro endpoint metod;
+- read-only CLI entry point (`php artisan etoro:copy-target`) koji poziva
+  isključivo taj use case, bez direktnog pristupa transportu.
+
+Konzumentski lanac:
+
+```text
+EtoroClient
+  → LivePortfolioMapper
+  → LivePortfolioCoverageAdapter::toCoverageTargetRequest()
+  → CopyCoverageCalculator::minimumAmountForCoverage()
+  → FindTraderMinimumCopyAmountForCoverage (application use case)
+  → etoro:copy-target (CLI)
+```
+
+Isti payload oblik i dalje prolazi kroz nepromenjeni mapper/adapter tok;
+use case i CLI dodaju orkestraciju i prikaz ciljane pokrivenosti, ne novu
+interpretaciju payload-a.
+
+- CLI **ne uvodi novi live eToro endpoint** — konzumira isti
+  `/api/v1/user-info/people/{username}/portfolio/live` koji je već
+  dokumentovan iznad (Run #1/Run #2).
+- Produkcijski use case/CLI je sposoban da pozove postojeći live-portfolio
+  endpoint preko `EtoroClient`-a (kad se stvarno izvrši) — implementacija
+  nije dodala drugi/novi endpoint.
+- Tokom razvoja/testiranja/review-a ovog stream-a nije izvršen dodatni live
+  API poziv/capture. Testovi koji prolaze kroz eToro/application HTTP ili
+  integration pipeline koriste postojeći sintetički
+  `tests/Fixtures/Etoro/live-portfolio.json` fixture kroz `Http::fake()` ili
+  mockovan `EtoroClient`; architecture/source testovi ne zahtevaju live
+  payload. Fixture fajlovi nisu menjani.
+- `investmentPct` kao allocation weight ostaje opažena/radna interpretacija
+  ograničenog uzorka, **ne** potvrđen stabilan eToro ugovor — target
+  coverage kalkulacija (nad istim weight poljem) ovo ne menja niti čini
+  potvrđenijim.
+- Target coverage rezultat (minimum copy amount za ciljanu pokrivenost)
+  **ne predstavlja finansijski savet** i nije potvrđen od strane eToro
+  platforme — to je lokalna, transparentna kalkulacija nad opaženim
+  `investmentPct` poljem (vidi `docs/DECISIONS.md` D-022 za tačnu
+  semantiku denominator-a).
+- Nijedan write API tok nije uveden.
+
 ### Sledeći razvojni korak
 
 1. ~~Otvoriti i pregledati PR za završeni domain-model stream
@@ -215,9 +267,13 @@ prikaz, ne novu interpretaciju payload-a.
    `EtoroClient`, mappere, adapter i calculator) odvojeno od pure domain
    sloja.~~ Završeno — vidi "Ažuriranje 2026-08-07" iznad i
    `docs/DECISIONS.md` D-020/D-021.
-3. Otvoriti i pregledati PR za `feature/etoro-application-orchestration` →
-   `main`.
-4. Dodatni live capture nije planiran osim ako se tokom daljeg rada otkrije
+3. ~~Otvoriti i pregledati PR za `feature/etoro-application-orchestration` →
+   `main`.~~ Završeno — mergovano kao PR #3 (commit `b2e1c3d`).
+4. ~~Dizajnirati target-copy coverage application use case i CLI konzumaciju
+   (minimalni iznos za ciljanu pokrivenost).~~ Završeno — vidi "Ažuriranje
+   2026-08-10" iznad i `docs/DECISIONS.md` D-022/D-023.
+5. Otvoriti i pregledati PR za `feature/etoro-target-coverage` → `main`.
+6. Dodatni live capture nije planiran osim ako se tokom daljeg rada otkrije
    konkretna schema rupa koja zahteva dodatni uvid u stvarni odgovor — ovo
-   ostaje na snazi i nakon Checkpoint A–B (nijedan dodatan live poziv nije
-   izvršen).
+   ostaje na snazi i nakon Checkpoint A–B target-coverage stream-a (nijedan
+   dodatan live poziv nije izvršen).
