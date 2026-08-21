@@ -162,6 +162,8 @@ function withIsolatedMySqlCollationConnection(Closure $callback): void
             '--path' => [
                 'database/migrations/2026_08_10_080517_create_traders_table.php',
                 'database/migrations/2026_08_10_080518_create_import_runs_table.php',
+                'database/migrations/2026_08_21_110117_add_parent_import_run_id_and_type_index_to_import_runs_table.php',
+                'database/migrations/2026_08_21_112838_create_import_run_failures_table.php',
             ],
             '--realpath' => false,
             '--force' => true,
@@ -188,6 +190,9 @@ function withIsolatedMySqlCollationConnection(Closure $callback): void
             // runs against a pre-existing or partially-configured
             // `mysql_collation_test` connection that this call didn't set
             // up itself.
+            // import_run_failures has a foreign key onto import_runs, so it
+            // is dropped first, ahead of every other domain table.
+            Schema::connection($connectionName)->dropIfExists('import_run_failures');
             Schema::connection($connectionName)->dropIfExists('traders');
             Schema::connection($connectionName)->dropIfExists('import_runs');
             Schema::connection($connectionName)->dropIfExists('migrations');

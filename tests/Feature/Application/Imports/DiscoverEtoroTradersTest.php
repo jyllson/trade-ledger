@@ -7,6 +7,7 @@ use App\Application\Imports\ImportRankingPage;
 use App\Etoro\EtoroClient;
 use App\Etoro\Mappers\RankingsMapper;
 use App\Models\ImportRun;
+use App\Models\ImportRunFailureReason;
 use App\Models\ImportRunStatus;
 use App\Models\Trader;
 use Illuminate\Http\Client\Factory;
@@ -387,6 +388,73 @@ it('aggregates controlled row-level rejections from a child page into the parent
         ->and($result->importRun->error_summary)->toContain('controlled trader identity conflict')
         ->and($result->importRun->error_summary)->not->toContain('1001')
         ->and($result->importRun->error_summary)->not->toContain('trader_a');
+});
+
+it('links the child page run\'s row-level failure to the rejected entry, reachable via childFailures(), without duplicating it on the aggregate', function (): void {
+    Trader::factory()->create(['external_cid' => 'existing-cid', 'username' => 'trader_a']);
+
+    Sleep::fake();
+    Http::fake([
+        DISCOVERY_RANKINGS_URL => Http::response(
+            discoverTradersRankingsPayload([
+                discoverTradersEntry('1001', 'trader_a'),
+                discoverTradersEntry('1002', 'trader_b'),
+            ], page: 1, pageSize: 20, totalItems: 2, hasNext: false),
+            200,
+        ),
+    ]);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    $childRun = ImportRun::query()->where('type', 'rankings')->firstOrFail();
+
+    expect($childRun->parent_import_run_id)->toBe($result->importRun->id)
+        ->and($childRun->failures()->count())->toBe(1);
+
+    $failure = $childRun->failures()->sole();
+
+    expect($failure->row_number)->toBe(1)
+        ->and($failure->external_cid)->toBe('1001')
+        ->and($failure->username)->toBe('trader_a')
+        ->and($failure->reason)->toBe(ImportRunFailureReason::IdentityConflictWithExistingTrader);
+
+    // Reachable from the aggregate via childFailures()...
+    expect($result->importRun->childFailures()->count())->toBe(1);
+
+    // ...but never duplicated as a direct failure of the aggregate itself.
+    expect($result->importRun->failures()->count())->toBe(0);
+});
+
+it('proves aggregate.failure_count equals the sum of every child run\'s failure_count, equals childFailures()->count(), with zero duplication on the aggregate', function (): void {
+    Trader::factory()->create(['external_cid' => 'existing-cid-a', 'username' => 'trader_a']);
+    Trader::factory()->create(['external_cid' => 'existing-cid-b', 'username' => 'trader_c']);
+
+    Sleep::fake();
+    Http::fake([
+        DISCOVERY_RANKINGS_URL => Http::sequence()
+            ->push(discoverTradersRankingsPayload([
+                discoverTradersEntry('1001', 'trader_a'), // conflicts with existing-cid-a
+                discoverTradersEntry('1002', 'trader_b'), // succeeds
+            ], page: 1, pageSize: 20, totalItems: 3, hasNext: true), 200)
+            ->push(discoverTradersRankingsPayload([
+                discoverTradersEntry('1003', 'trader_c'), // conflicts with existing-cid-b
+            ], page: 2, pageSize: 20, totalItems: 3, hasNext: false), 200),
+    ]);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    $childRuns = ImportRun::query()->where('type', 'rankings')->orderBy('id')->get();
+
+    expect($childRuns)->toHaveCount(2);
+
+    $summedChildFailureCount = $childRuns->sum('failure_count');
+
+    expect($summedChildFailureCount)->toBe(2)
+        ->and($result->importRun->failure_count)->toBe($summedChildFailureCount)
+        ->and($result->importRun->childFailures()->count())->toBe($summedChildFailureCount)
+        ->and($result->importRun->failures()->count())->toBe(0);
 });
 
 // --- G. Idempotent rerun ---------------------------------------------------

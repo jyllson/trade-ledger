@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Support\Carbon;
 
 /**
@@ -72,5 +73,49 @@ class ImportRun extends Model
     public function childRuns(): HasMany
     {
         return $this->hasMany(self::class, 'parent_import_run_id');
+    }
+
+    /**
+     * Row-level controlled identity conflicts rejected under THIS run.
+     * App\Application\Imports\ImportRankingPage is the only writer, and it
+     * only ever records these against the per-page `rankings` (or
+     * fixture-only single-page) run it is finalizing — it never runs
+     * against a `rankings_discovery` aggregate run at all, so an aggregate
+     * accumulates none here directly. Neither the database schema nor this
+     * model enforces that as a constraint; it is a fact about the current
+     * writer, not a guarantee. See childFailures() to reach a discovery
+     * aggregate's direct child runs' failures.
+     *
+     * @return HasMany<ImportRunFailure, $this>
+     */
+    public function failures(): HasMany
+    {
+        return $this->hasMany(ImportRunFailure::class);
+    }
+
+    /**
+     * Narrow, typed convenience for a `rankings_discovery` aggregate run:
+     * every ImportRunFailure belonging to one of its DIRECT childRuns(), in
+     * one query, without duplicating failure rows onto the aggregate
+     * itself. This is exactly one level deep — it does not recurse into
+     * grandchildren or any deeper descendant, which matches the current
+     * discovery pipeline's shape (an aggregate's children are always
+     * per-page `rankings` runs, which have no children of their own). A
+     * plain self-referencing hasManyThrough — no collation-sensitive string
+     * comparison is involved (only integer foreign-key joins), so this
+     * works identically on SQLite and MySQL.
+     *
+     * @return HasManyThrough<ImportRunFailure, ImportRun, $this>
+     */
+    public function childFailures(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            ImportRunFailure::class,
+            self::class,
+            'parent_import_run_id',
+            'import_run_id',
+            'id',
+            'id',
+        );
     }
 }

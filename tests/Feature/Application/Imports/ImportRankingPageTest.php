@@ -6,6 +6,8 @@ use App\Etoro\Data\RankingPage;
 use App\Etoro\Data\RankingPagination;
 use App\Etoro\RankingQuery;
 use App\Models\ImportRun;
+use App\Models\ImportRunFailure;
+use App\Models\ImportRunFailureReason;
 use App\Models\ImportRunStatus;
 use App\Models\Trader;
 use App\Models\TraderStatus;
@@ -490,4 +492,167 @@ it('fails closed when the parent aggregate exists but source is not etoro', func
 
     expect(fn () => (new ImportRankingPage)->handle($page, importRankingPageQuery(), $wrongSource->id))
         ->toThrow(InvalidArgumentException::class);
+});
+
+// --- Checkpoint F: row-level failure audit ----------------------------------
+
+it('records an IdentityConflictWithinPage failure row with the correct 1-based row_number', function (): void {
+    $entryA = importRankingPageEntry(cid: 'cid-conflict-1', username: 'trader_conflict_a');
+    $entryB = importRankingPageEntry(cid: 'cid-conflict-1', username: 'trader_conflict_b');
+
+    $importRun = (new ImportRankingPage)->handle(
+        importRankingPagePage([$entryA, $entryB]),
+        importRankingPageQuery(),
+    );
+
+    expect($importRun->failures)->toHaveCount(2);
+
+    $failures = $importRun->failures()->orderBy('row_number')->get();
+
+    expect($failures[0]->row_number)->toBe(1)
+        ->and($failures[0]->reason)->toBe(ImportRunFailureReason::IdentityConflictWithinPage)
+        ->and($failures[0]->external_cid)->toBe('cid-conflict-1')
+        ->and($failures[0]->username)->toBe('trader_conflict_a')
+        ->and($failures[1]->row_number)->toBe(2)
+        ->and($failures[1]->reason)->toBe(ImportRunFailureReason::IdentityConflictWithinPage)
+        ->and($failures[1]->external_cid)->toBe('cid-conflict-1')
+        ->and($failures[1]->username)->toBe('trader_conflict_b');
+});
+
+it('records an IdentityConflictWithExistingTrader failure row for a conflict against a previously-imported trader', function (): void {
+    Trader::factory()->create(['external_cid' => '100001', 'username' => 'someone_else']);
+
+    $conflictingEntry = importRankingPageEntry(cid: '100001', username: 'trader_001');
+
+    $importRun = (new ImportRankingPage)->handle(
+        importRankingPagePage([$conflictingEntry]),
+        importRankingPageQuery(),
+    );
+
+    $failure = $importRun->failures()->sole();
+
+    expect($failure->row_number)->toBe(1)
+        ->and($failure->reason)->toBe(ImportRunFailureReason::IdentityConflictWithExistingTrader)
+        ->and($failure->external_cid)->toBe('100001')
+        ->and($failure->username)->toBe('trader_001');
+});
+
+it('preserves original 1-based row order across a mix of successful and rejected entries', function (): void {
+    Trader::factory()->create(['external_cid' => 'existing-cid', 'username' => 'someone_else']);
+
+    $validEntry = importRankingPageEntry(cid: '200002', username: 'trader_002');
+    $conflictingEntry = importRankingPageEntry(cid: 'existing-cid', username: 'trader_001');
+    $anotherValidEntry = importRankingPageEntry(cid: '200003', username: 'trader_003');
+
+    $importRun = (new ImportRankingPage)->handle(
+        importRankingPagePage([$validEntry, $conflictingEntry, $anotherValidEntry]),
+        importRankingPageQuery(),
+    );
+
+    $failure = $importRun->failures()->sole();
+
+    expect($failure->row_number)->toBe(2);
+});
+
+it('does not create a failure row for a consistent in-page duplicate', function (): void {
+    $entry = importRankingPageEntry();
+
+    $importRun = (new ImportRankingPage)->handle(
+        importRankingPagePage([$entry, $entry]),
+        importRankingPageQuery(),
+    );
+
+    expect($importRun->status)->toBe(ImportRunStatus::Completed)
+        ->and($importRun->failure_count)->toBe(0)
+        ->and($importRun->failures()->count())->toBe(0);
+});
+
+it('creates separate audit rows per repeated import run, without duplicate traders', function (): void {
+    Trader::factory()->create(['external_cid' => 'existing-cid', 'username' => 'someone_else']);
+    $conflictingEntry = importRankingPageEntry(cid: 'existing-cid', username: 'trader_001');
+    $page = importRankingPagePage([$conflictingEntry]);
+
+    $firstRun = (new ImportRankingPage)->handle($page, importRankingPageQuery());
+    $secondRun = (new ImportRankingPage)->handle($page, importRankingPageQuery());
+
+    expect($firstRun->id)->not->toBe($secondRun->id)
+        ->and($firstRun->failures()->count())->toBe(1)
+        ->and($secondRun->failures()->count())->toBe(1)
+        ->and(ImportRunFailure::query()->count())->toBe(2)
+        ->and(Trader::query()->count())->toBe(1);
+});
+
+it('rolls back BOTH the new trader write AND the attempted row-failure record together, in the same transaction, on an unexpected persistence failure — mixed page (one success, one conflict)', function (): void {
+    $originalDispatcher = ImportRun::getEventDispatcher();
+    ImportRun::setEventDispatcher(clone $originalDispatcher);
+
+    $hasThrown = false;
+
+    ImportRun::saving(function (ImportRun $importRun) use (&$hasThrown): void {
+        if (! $hasThrown && $importRun->status !== ImportRunStatus::Running) {
+            $hasThrown = true;
+
+            throw new RuntimeException('Simulated ImportRun finalization failure for test purposes.');
+        }
+    });
+
+    $preExistingTrader = Trader::factory()->create([
+        'external_cid' => 'existing-cid',
+        'username' => 'someone_else',
+        'copiers_count' => 111,
+    ]);
+
+    // One entry that would succeed as a brand-new trader, and one that
+    // conflicts with the pre-existing row above — a single page exercising
+    // both rollback paths (a new Trader::create() AND an attempted
+    // ImportRunFailure::create()) at once, in one transaction.
+    $newValidEntry = importRankingPageEntry(cid: 'new-cid', username: 'brand_new_trader');
+    $conflictingEntry = importRankingPageEntry(cid: 'existing-cid', username: 'trader_001');
+    $page = importRankingPagePage([$newValidEntry, $conflictingEntry]);
+
+    try {
+        expect(fn () => (new ImportRankingPage)->handle($page, importRankingPageQuery()))
+            ->toThrow(RuntimeException::class);
+    } finally {
+        ImportRun::setEventDispatcher($originalDispatcher);
+    }
+
+    // The new trader write never committed.
+    expect(Trader::query()->where('external_cid', 'new-cid')->exists())->toBeFalse();
+    expect(Trader::query()->where('username', 'brand_new_trader')->exists())->toBeFalse();
+
+    // The pre-existing conflicting trader is completely untouched.
+    expect($preExistingTrader->refresh()->username)->toBe('someone_else')
+        ->and($preExistingTrader->copiers_count)->toBe(111);
+
+    // Only the one pre-existing trader exists — nothing else committed.
+    expect(Trader::query()->count())->toBe(1);
+
+    $importRun = ImportRun::query()->latest('id')->firstOrFail();
+
+    // The blanket-failure recovery path sets failure_count to the full
+    // entry count (both entries, including the one that would otherwise
+    // have succeeded) without ever having successfully committed (or
+    // fabricating) a row-level reason for either — the transaction rolled
+    // back any ImportRunFailure insert attempted during processing, the
+    // same way it rolled back the new trader write.
+    expect($importRun->status)->toBe(ImportRunStatus::Failed)
+        ->and($importRun->failure_count)->toBe(2)
+        ->and($importRun->success_count)->toBe(0)
+        ->and($importRun->failures()->count())->toBe(0);
+});
+
+it('keeps error_summary sanitized (count-only) even when row-level failure records exist with real identity values', function (): void {
+    Trader::factory()->create(['external_cid' => 'existing-cid', 'username' => 'someone_else']);
+    $conflictingEntry = importRankingPageEntry(cid: 'existing-cid', username: 'trader_001');
+
+    $importRun = (new ImportRankingPage)->handle(
+        importRankingPagePage([$conflictingEntry]),
+        importRankingPageQuery(),
+    );
+
+    expect($importRun->failures()->count())->toBe(1)
+        ->and($importRun->error_summary)->not->toBeNull()
+        ->and($importRun->error_summary)->not->toContain('existing-cid')
+        ->and($importRun->error_summary)->not->toContain('trader_001');
 });
