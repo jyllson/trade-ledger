@@ -821,3 +821,82 @@ Grana je nakon ovog documentation closeout-a spremna za PR prema `main`; PR
 još nije otvoren.
 
 ---
+
+## 2026-08-21 — Grana `feature/trader-ranking-import`: Checkpoint A–C implementacija, Checkpoint D documentation closeout
+
+Baza grane: `144f1da` ("feat: add eToro target copy coverage", potvrđeno
+mergovano u `main` — vidi `docs/REVIEW_STATUS.md` istorijsku sekciju "eToro
+target-copy coverage sloj"). Tri implementaciona commit-a:
+
+1. `f22bde8` feat: add trader persistence foundation (Checkpoint A) —
+   `traders`/`import_runs` migracije, `Trader`/`ImportRun` Eloquent modeli,
+   `TraderStatus`/`ImportRunStatus` enum-i, factory-ji. Vidi
+   `docs/DECISIONS.md` D-024.
+2. `c6c7580` feat: import eToro ranking pages (Checkpoint B) —
+   `App\Application\Imports\ImportRankingPage`, idempotentni persistence
+   use case sa in-page identity ambiguity rezolucijom, driver-specifičnim
+   (MySQL collation-aware / SQLite byte-exact) equality putevima, i
+   transakcionim rollback-om na neočekivan failure. Vidi
+   `docs/DECISIONS.md` D-025.
+3. `d739e4c` feat: add fixture-only ranking page import command
+   (Checkpoint C) — `App\Etoro\FixtureSources\RankingFixtureSource`,
+   `App\Application\Imports\ImportRankingPageFromFixture`,
+   `App\Console\Commands\EtoroImportRankingPageCommand`
+   (`etoro:import-ranking-page {period}`). Kanonski fixture premešten na
+   `resources/fixtures/etoro/rankings.json`. Vidi `docs/DECISIONS.md`
+   D-026.
+
+Checkpoint C je prošao kroz dva review kruga (v1 nalazi: development-only
+fail-closed environment guard, tanka CLI exception granica, input/metadata
+ugovor test, git index cleanup; v2 korekcije primenjene, testirane i
+push-ovane) pre push-a na `origin/feature/trader-ranking-import` na commit
+`d739e4c` (`git push -u origin feature/trader-ranking-import`, bez force-a,
+bez taga, bez PR-a).
+
+**Checkpoint D je documentation-only closeout** (ovaj unos) — ne dodaje
+niti menja produkcijski/testni/config/database kod, fixture JSON, API-je,
+command behavior, scheduler/queue/UI/search niti generički framework.
+Menja isključivo `PROJECT.md` §9, `docs/REVIEW_STATUS.md`,
+`docs/DECISIONS.md` (D-024–D-026), i ovaj unos u `docs/WORKLOG.md`.
+
+### Arhitektonske/security granice (A–C, potvrđeno kodom i testovima)
+
+- Manualni CLI je local/testing-only (environment guard proveren PRE
+  fixture I/O-a i DB upisa) — sintetički podaci ne mogu dospeti u realnu
+  bazu.
+- CLI nema direktnu zavisnost ni od jednog `App\Etoro` exception tipa;
+  jedan `catch (Throwable)`, jedna statična sanitizovana poruka.
+- `EtoroClient` ostaje potpuno nepromenjen i nije referenciran nigde u
+  ovom lancu (arhitektonski testovi to dokazuju strukturno).
+- Nijedan novi live eToro poziv nije izvršen tokom cele grane (A–D); jedini
+  fixture je potpuno sintetički, iz Milestone 1 spike-a, sada premešten
+  (ne dupliran).
+
+### Finalna nezavisno potvrđena verifikacija (pre Checkpoint D izmena dokumentacije)
+
+```bash
+php artisan test --compact       # 916 total, 912 passed, 0 failed, 4 skipped, 3017 assertions
+vendor/bin/pint --test           # passed
+vendor/bin/phpstan analyse       # 0 errors
+```
+
+Četiri skipped testa su izolovani MySQL collation testovi
+(`tests/Feature/Application/Imports/ImportRankingPageMySqlCollationTest.php`)
+— **nisu izvršeni** bez dedikovane `MYSQL_COLLATION_TEST_*` konekcije;
+development baza `trade_ledger` nikad korišćena tokom cele grane.
+
+### Review artefakti
+
+`checkpoint-c-manual-ranking-import-v1.{patch,zip}` i
+`checkpoint-c-manual-ranking-import-v2.{patch,zip}` su git-ignorisani
+(`.gitignore` `/*.patch`, `/*.zip`) i nikad nisu ušli u git istoriju —
+služili su isključivo za review pre commit-a. Finalni v2 je pregledan i
+odobren pre commit-a `d739e4c`.
+
+### Remote stanje
+
+`origin/feature/trader-ranking-import` potvrđen na `d739e4c`
+(`git ls-remote --heads origin refs/heads/feature/trader-ranking-import`).
+Pull request prema `main` **NIJE otvoren**; grana **NIJE mergovana**.
+
+---

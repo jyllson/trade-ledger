@@ -12,6 +12,8 @@
 !.env.example
 *.swp
 *.swo
+/*.patch
+/*.zip
 .phpactor.json
 .phpunit.result.cache
 Homestead.json
