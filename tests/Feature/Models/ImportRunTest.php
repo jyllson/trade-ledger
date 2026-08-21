@@ -3,6 +3,7 @@
 use App\Models\ImportRun;
 use App\Models\ImportRunStatus;
 use Carbon\CarbonInterface;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -11,6 +12,7 @@ it('creates an import_runs table with the expected columns', function (): void {
 
     expect(Schema::hasColumns('import_runs', [
         'id',
+        'parent_import_run_id',
         'source',
         'type',
         'status',
@@ -24,6 +26,66 @@ it('creates an import_runs table with the expected columns', function (): void {
         'created_at',
         'updated_at',
     ]))->toBeTrue();
+});
+
+// --- Checkpoint E: parent_import_run_id self-relation -----------------------
+
+it('allows a null parent_import_run_id', function (): void {
+    $importRun = ImportRun::factory()->create(['parent_import_run_id' => null]);
+
+    $fromDatabase = ImportRun::query()->findOrFail($importRun->id);
+
+    expect($fromDatabase->parent_import_run_id)->toBeNull();
+});
+
+it('casts parent_import_run_id to an integer', function (): void {
+    $parent = ImportRun::factory()->create();
+    $child = ImportRun::factory()->create(['parent_import_run_id' => $parent->id]);
+
+    $fromDatabase = ImportRun::query()->findOrFail($child->id);
+
+    expect($fromDatabase->parent_import_run_id)->toBe($parent->id)->toBeInt();
+});
+
+it('exposes explicit parentRun and childRuns relations', function (): void {
+    $parent = ImportRun::factory()->create(['type' => 'rankings_discovery']);
+    $childA = ImportRun::factory()->create(['parent_import_run_id' => $parent->id, 'type' => 'rankings']);
+    $childB = ImportRun::factory()->create(['parent_import_run_id' => $parent->id, 'type' => 'rankings']);
+    ImportRun::factory()->create(['parent_import_run_id' => null]);
+
+    expect($childA->parentRun)->not->toBeNull()
+        ->and($childA->parentRun->id)->toBe($parent->id);
+
+    $children = $parent->childRuns()->pluck('id')->sort()->values();
+
+    expect($children->all())->toBe(collect([$childA->id, $childB->id])->sort()->values()->all());
+});
+
+it('nulls parent_import_run_id on children when the parent run is deleted', function (): void {
+    $parent = ImportRun::factory()->create(['type' => 'rankings_discovery']);
+    $child = ImportRun::factory()->create(['parent_import_run_id' => $parent->id, 'type' => 'rankings']);
+
+    $parent->delete();
+
+    expect($child->refresh()->parent_import_run_id)->toBeNull();
+});
+
+it('indexes the type column', function (): void {
+    $indexedColumns = collect(Schema::getIndexes('import_runs'))
+        ->flatMap(fn (array $index): array => $index['columns']);
+
+    expect($indexedColumns)->toContain('type');
+});
+
+it('enforces a foreign key constraint pointing back at import_runs.id', function (): void {
+    expect(fn () => DB::table('import_runs')->insert([
+        'parent_import_run_id' => 999999,
+        'source' => 'etoro',
+        'type' => 'rankings',
+        'started_at' => now(),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]))->toThrow(QueryException::class);
 });
 
 it('defaults a newly inserted import run status to pending', function (): void {

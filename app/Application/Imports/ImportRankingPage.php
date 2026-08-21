@@ -13,14 +13,15 @@ use App\Models\Trader;
 use App\Models\TraderStatus;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
 /**
  * Persists an already-mapped eToro RankingPage as an idempotent trader
  * upsert, recorded as a single ImportRun. Does not call EtoroClient, does
- * not map raw payloads, and does not read fixtures — the caller (a future
- * Checkpoint C CLI) is responsible for producing the RankingPage.
+ * not map raw payloads, and does not read fixtures — the caller is
+ * responsible for producing the RankingPage.
  */
 final class ImportRankingPage
 {
@@ -28,11 +29,33 @@ final class ImportRankingPage
 
     private const TYPE = 'rankings';
 
-    public function handle(RankingPage $rankingPage, RankingQuery $rankingQuery): ImportRun
+    /**
+     * The only ImportRun `type` a `parentImportRunId` may reference — the
+     * live multi-page discovery aggregate run (see
+     * App\Application\Imports\DiscoverEtoroTraders). A fixture-only or
+     * per-page `rankings` run can never pass this check, so it can never
+     * masquerade as a parent.
+     */
+    private const AGGREGATE_TYPE = 'rankings_discovery';
+
+    /**
+     * $parentImportRunId is optional and defaults to null so every existing
+     * caller (ImportRankingPageFromFixture, and any direct single-page
+     * caller) is completely unaffected. When provided, it must reference an
+     * existing etoro/rankings_discovery aggregate ImportRun with status
+     * Running — checked BEFORE any write, fail-closed, so a fixture-only or
+     * already-finished run can never be used as a parent.
+     */
+    public function handle(RankingPage $rankingPage, RankingQuery $rankingQuery, ?int $parentImportRunId = null): ImportRun
     {
+        if ($parentImportRunId !== null) {
+            $this->assertValidParent($parentImportRunId);
+        }
+
         $importedAt = now();
 
         $importRun = ImportRun::create([
+            'parent_import_run_id' => $parentImportRunId,
             'source' => self::SOURCE,
             'type' => self::TYPE,
             'status' => ImportRunStatus::Running,
@@ -78,6 +101,28 @@ final class ImportRankingPage
         }
 
         return $importRun->refresh();
+    }
+
+    /**
+     * Fail-closed guard: a parent must be a real, currently-Running
+     * etoro/rankings_discovery aggregate ImportRun — never a fixture-only
+     * run, a per-page `rankings` run, a finished run, or a nonexistent id.
+     * Runs before any write for this page.
+     */
+    private function assertValidParent(int $parentImportRunId): void
+    {
+        $parent = ImportRun::query()->find($parentImportRunId);
+
+        if (
+            $parent === null
+            || $parent->source !== self::SOURCE
+            || $parent->type !== self::AGGREGATE_TYPE
+            || $parent->status !== ImportRunStatus::Running
+        ) {
+            throw new InvalidArgumentException(
+                'parentImportRunId must reference an existing etoro/rankings_discovery aggregate ImportRun with status Running.'
+            );
+        }
     }
 
     /**

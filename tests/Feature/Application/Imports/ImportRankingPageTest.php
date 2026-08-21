@@ -414,3 +414,80 @@ it('rolls back all trader writes and marks the ImportRun failed when its finaliz
         ->and($importRun->error_summary)->not->toBeNull()
         ->and($importRun->error_summary)->not->toContain('Simulated ImportRun finalization failure');
 });
+
+// --- Checkpoint E: optional parent_import_run_id integration ---------------
+
+it('leaves parent_import_run_id null when no parent is passed, preserving every existing single-page/fixture caller', function (): void {
+    $page = importRankingPagePage([importRankingPageEntry()]);
+
+    $importRun = (new ImportRankingPage)->handle($page, importRankingPageQuery());
+
+    expect($importRun->parent_import_run_id)->toBeNull();
+});
+
+it('sets parent_import_run_id on the child run when a valid running rankings_discovery aggregate is passed', function (): void {
+    $aggregateRun = ImportRun::factory()->create([
+        'type' => 'rankings_discovery',
+        'status' => ImportRunStatus::Running,
+    ]);
+
+    $page = importRankingPagePage([importRankingPageEntry()]);
+
+    $childRun = (new ImportRankingPage)->handle($page, importRankingPageQuery(), $aggregateRun->id);
+
+    expect($childRun->parent_import_run_id)->toBe($aggregateRun->id)
+        ->and($childRun->type)->toBe('rankings');
+});
+
+it('fails closed without any write when the parent id does not exist', function (): void {
+    $page = importRankingPagePage([importRankingPageEntry()]);
+
+    expect(fn () => (new ImportRankingPage)->handle($page, importRankingPageQuery(), 999999))
+        ->toThrow(InvalidArgumentException::class);
+
+    expect(Trader::query()->count())->toBe(0)
+        ->and(ImportRun::query()->count())->toBe(0);
+});
+
+it('fails closed when the parent exists but is not type=rankings_discovery, refusing a fixture-only or per-page run as a parent', function (): void {
+    $notAnAggregate = ImportRun::factory()->create([
+        'type' => 'rankings',
+        'status' => ImportRunStatus::Running,
+    ]);
+
+    $page = importRankingPagePage([importRankingPageEntry()]);
+
+    expect(fn () => (new ImportRankingPage)->handle($page, importRankingPageQuery(), $notAnAggregate->id))
+        ->toThrow(InvalidArgumentException::class);
+
+    expect(Trader::query()->count())->toBe(0)
+        ->and(ImportRun::query()->count())->toBe(1);
+});
+
+it('fails closed when the parent aggregate exists but is not status=Running', function (): void {
+    $finishedAggregate = ImportRun::factory()->create([
+        'type' => 'rankings_discovery',
+        'status' => ImportRunStatus::Completed,
+    ]);
+
+    $page = importRankingPagePage([importRankingPageEntry()]);
+
+    expect(fn () => (new ImportRankingPage)->handle($page, importRankingPageQuery(), $finishedAggregate->id))
+        ->toThrow(InvalidArgumentException::class);
+
+    expect(Trader::query()->count())->toBe(0)
+        ->and(ImportRun::query()->count())->toBe(1);
+});
+
+it('fails closed when the parent aggregate exists but source is not etoro', function (): void {
+    $wrongSource = ImportRun::factory()->create([
+        'source' => 'other',
+        'type' => 'rankings_discovery',
+        'status' => ImportRunStatus::Running,
+    ]);
+
+    $page = importRankingPagePage([importRankingPageEntry()]);
+
+    expect(fn () => (new ImportRankingPage)->handle($page, importRankingPageQuery(), $wrongSource->id))
+        ->toThrow(InvalidArgumentException::class);
+});

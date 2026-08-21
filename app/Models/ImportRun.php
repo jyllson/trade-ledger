@@ -8,10 +8,13 @@ use Database\Factories\ImportRunFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
+ * @property int|null $parent_import_run_id
  * @property string $source
  * @property string $type
  * @property ImportRunStatus $status
@@ -25,7 +28,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['source', 'type', 'status', 'metadata', 'request_count', 'success_count', 'failure_count', 'started_at', 'finished_at', 'error_summary'])]
+#[Fillable(['parent_import_run_id', 'source', 'type', 'status', 'metadata', 'request_count', 'success_count', 'failure_count', 'started_at', 'finished_at', 'error_summary'])]
 class ImportRun extends Model
 {
     /** @use HasFactory<ImportRunFactory> */
@@ -37,6 +40,7 @@ class ImportRun extends Model
     protected function casts(): array
     {
         return [
+            'parent_import_run_id' => 'integer',
             'status' => ImportRunStatus::class,
             'metadata' => 'array',
             'request_count' => 'integer',
@@ -45,5 +49,28 @@ class ImportRun extends Model
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
         ];
+    }
+
+    /**
+     * The `rankings_discovery` aggregate run this per-page `rankings` run
+     * was created under, when applicable — null for single-page/fixture
+     * callers that pass no parent.
+     *
+     * @return BelongsTo<ImportRun, $this>
+     */
+    public function parentRun(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'parent_import_run_id');
+    }
+
+    /**
+     * The per-page `rankings` runs a `rankings_discovery` aggregate run
+     * spawned.
+     *
+     * @return HasMany<ImportRun, $this>
+     */
+    public function childRuns(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_import_run_id');
     }
 }
