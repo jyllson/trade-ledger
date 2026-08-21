@@ -1,23 +1,33 @@
 <?php
 
 /**
- * Offline integrity checks for the fully synthetic fixtures under
- * tests/Fixtures/Etoro/. These fixtures do not represent any real eToro
- * user or portfolio — see tests/Fixtures/Etoro/README.md. No network
- * access, no DTOs, no mappers, and no production calculator are exercised
- * here; this only proves the fixture files themselves are well-formed and
- * leak-free.
+ * Offline integrity checks for the fully synthetic fixtures. Three of the
+ * four (public-profile.json, performance-history.json, live-portfolio.json)
+ * remain test-only assets under tests/Fixtures/Etoro/ — see
+ * tests/Fixtures/Etoro/README.md. rankings.json is Checkpoint C's single
+ * canonical fixture and lives under resources/fixtures/etoro/ instead
+ * (production-resolvable via resource_path(), never duplicated back into
+ * tests/Fixtures/Etoro/). No network access, no
+ * DTOs, no mappers, and no production calculator are exercised here; this
+ * only proves the fixture files themselves are well-formed and leak-free.
  */
 const FIXTURE_DIR = __DIR__.'/../../Fixtures/Etoro/';
 
+const RANKING_RESOURCE_FIXTURE_DIR = __DIR__.'/../../../resources/fixtures/etoro/';
+
+function fixtureDirFor(string $name): string
+{
+    return $name === 'rankings.json' ? RANKING_RESOURCE_FIXTURE_DIR : FIXTURE_DIR;
+}
+
 function fixtureJson(string $name): array
 {
-    return json_decode(file_get_contents(FIXTURE_DIR.$name), true, flags: JSON_THROW_ON_ERROR);
+    return json_decode(file_get_contents(fixtureDirFor($name).$name), true, flags: JSON_THROW_ON_ERROR);
 }
 
 function fixtureRaw(string $name): string
 {
-    return file_get_contents(FIXTURE_DIR.$name);
+    return file_get_contents(fixtureDirFor($name).$name);
 }
 
 /** Recursively collects every string leaf value in a JSON structure. */
@@ -37,8 +47,9 @@ function collectStrings(mixed $data, array &$out): void
 
 it('has all four fixture files present and valid JSON', function () {
     foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'live-portfolio.json'] as $file) {
-        expect(FIXTURE_DIR.$file)->toBeFile();
-        json_decode(file_get_contents(FIXTURE_DIR.$file), true, flags: JSON_THROW_ON_ERROR);
+        $path = fixtureDirFor($file).$file;
+        expect($path)->toBeFile();
+        json_decode(file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
     }
 });
 

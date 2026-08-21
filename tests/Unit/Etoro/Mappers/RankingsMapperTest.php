@@ -7,14 +7,17 @@ use App\Etoro\Mappers\RankingsMapper;
 
 /**
  * Loads a fresh decode of the synthetic fixture on every call — deliberately
- * avoids any Laravel helper (base_path()/app_path()) so this pure-PHP Unit
- * test suite never depends on the framework container being bootstrapped.
+ * avoids any Laravel helper (base_path()/app_path()/resource_path()) so this
+ * pure-PHP Unit test suite never depends on the framework container being
+ * bootstrapped. Reads the canonical resources/fixtures/etoro/rankings.json
+ * location (Checkpoint C) — the same file the production
+ * RankingFixtureSource resolves via resource_path().
  *
  * @return array<string, mixed>
  */
 function checkpointD2RankingsFixture(): array
 {
-    $json = file_get_contents(__DIR__.'/../../../Fixtures/Etoro/rankings.json');
+    $json = file_get_contents(__DIR__.'/../../../../resources/fixtures/etoro/rankings.json');
 
     return json_decode($json, associative: true, flags: JSON_THROW_ON_ERROR);
 }

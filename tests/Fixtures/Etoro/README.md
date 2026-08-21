@@ -6,10 +6,16 @@ URL, timestamp, and financial/allocation figure was hand-authored for
 structural test coverage — none of them were derived by transforming,
 scaling, or otherwise deriving from any real captured API response.
 
+> **`rankings.json` moved.** As of Checkpoint C
+> (`App\Etoro\FixtureSources\RankingFixtureSource`), the rankings fixture is
+> the single canonical, production-resolvable fixture for the manual,
+> fixture-only `etoro:import-ranking-page` command, and lives at
+> `resources/fixtures/etoro/rankings.json` instead of this directory — it is
+> not duplicated here. It is still fully synthetic, with the same
+> provenance and guarantees described in this file.
+
 ## Files
 
-- `rankings.json` — 3 synthetic investor-ranking rows (2 `trader`, 1
-  `smart-portfolio`).
 - `public-profile.json` — 1 synthetic public trader profile
   (`trader_001`).
 - `performance-history.json` — 24 synthetic monthly + 3 synthetic yearly
