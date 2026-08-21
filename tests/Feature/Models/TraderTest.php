@@ -20,9 +20,67 @@ it('creates a traders table with the expected columns', function (): void {
         'status',
         'first_seen_at',
         'last_seen_at',
+        'profile_gcid',
+        'profile_is_popular_investor',
+        'profile_is_verified',
+        'profile_country_code',
+        'profile_language_iso_code',
+        'profile_synced_at',
         'created_at',
         'updated_at',
     ]))->toBeTrue();
+});
+
+// --- Checkpoint G: profile fields ------------------------------------------
+
+it('leaves all six profile fields null by default on a freshly-imported ranking candidate', function (): void {
+    $trader = Trader::factory()->create();
+
+    $fromDatabase = Trader::query()->findOrFail($trader->id);
+
+    expect($fromDatabase->profile_gcid)->toBeNull()
+        ->and($fromDatabase->profile_is_popular_investor)->toBeNull()
+        ->and($fromDatabase->profile_is_verified)->toBeNull()
+        ->and($fromDatabase->profile_country_code)->toBeNull()
+        ->and($fromDatabase->profile_language_iso_code)->toBeNull()
+        ->and($fromDatabase->profile_synced_at)->toBeNull();
+});
+
+it('casts profile_is_popular_investor and profile_is_verified to booleans', function (): void {
+    $trader = Trader::factory()->create([
+        'profile_is_popular_investor' => true,
+        'profile_is_verified' => false,
+    ]);
+
+    $fromDatabase = Trader::query()->findOrFail($trader->id);
+
+    expect($fromDatabase->profile_is_popular_investor)->toBeTrue()->toBeBool()
+        ->and($fromDatabase->profile_is_verified)->toBeFalse()->toBeBool();
+});
+
+it('casts profile_country_code to an integer', function (): void {
+    $trader = Trader::factory()->create(['profile_country_code' => 1]);
+
+    $fromDatabase = Trader::query()->findOrFail($trader->id);
+
+    expect($fromDatabase->profile_country_code)->toBe(1)->toBeInt();
+});
+
+it('casts profile_synced_at to a Carbon instance', function (): void {
+    $trader = Trader::factory()->create(['profile_synced_at' => '2026-01-01 00:00:00']);
+
+    $fromDatabase = Trader::query()->findOrFail($trader->id);
+
+    expect($fromDatabase->profile_synced_at)->toBeInstanceOf(CarbonInterface::class);
+});
+
+it('stores profile_gcid as a plain string with no unique constraint, independent of external_cid', function (): void {
+    $traderA = Trader::factory()->create(['external_cid' => 'cid-a', 'profile_gcid' => 'duplicate-gcid']);
+    $traderB = Trader::factory()->create(['external_cid' => 'cid-b', 'profile_gcid' => 'duplicate-gcid']);
+
+    expect($traderA->refresh()->profile_gcid)->toBe('duplicate-gcid')
+        ->and($traderB->refresh()->profile_gcid)->toBe('duplicate-gcid')
+        ->and($traderA->external_cid)->not->toBe($traderA->profile_gcid);
 });
 
 it('rejects a second trader with a duplicate username', function (): void {
