@@ -431,7 +431,7 @@ app/
 - Store timestamps in UTC.
 - Display timestamps in `Europe/Malta`.
 
-### Current implementation status (updated 2026-08-10)
+### Current implementation status (updated 2026-08-21)
 
 The tree above is the target shape and does not yet exist in full. What is
 actually implemented today, in addition to the eToro domain-model layer
@@ -489,8 +489,50 @@ routes. The repository's existing framework/default scaffold (e.g. the base
 `User` model/migrations and the base Filament panel provider) predates both
 streams and is unrelated to them.
 
-This stream completes, via a one-off CLI call against the live API, only
-the calculation portion of one Milestone 4 (§20) deliverable — "minimum
+That gap has since been partially closed by a separate implementation
+stream, `feature/trader-ranking-import` (Checkpoint A–C; branched from
+`144f1da`, which was `main`'s tip at the time — the target-coverage
+stream's own merge result; the earlier application-orchestration and
+domain-model streams merged as their own separate commits, `b2e1c3d` and
+`5a36aff` respectively). Checkpoint A
+(`f22bde8`) added the first application-specific persistence:
+`app/Models/{Trader,TraderStatus,ImportRun,ImportRunStatus}.php`, migrations
+`2026_08_10_080517_create_traders_table.php` and
+`2026_08_10_080518_create_import_runs_table.php`, and matching factories.
+Checkpoint B (`c6c7580`) added `App\Application\Imports\ImportRankingPage`,
+an idempotent persistence use case that upserts an already-mapped
+`RankingPage` into `traders`/`import_runs` (identity/collation/transaction
+contract — `docs/DECISIONS.md` D-025). Checkpoint C (`d739e4c`) added a
+manual, offline, fixture-only CLI, `php artisan etoro:import-ranking-page
+{period}` (`App\Console\Commands\EtoroImportRankingPageCommand`), which
+reads the single canonical synthetic fixture at
+`resources/fixtures/etoro/rankings.json` through
+`App\Etoro\FixtureSources\RankingFixtureSource` →
+`App\Etoro\Mappers\RankingsMapper` →
+`App\Application\Imports\ImportRankingPage`, hard-codes `page=1`/`pageSize=3`
+(the fixture's only real content), and refuses to run outside
+`local`/`testing` (`docs/DECISIONS.md` D-026). This stream does not add a
+general `EtoroClient`-based live rankings import/orchestration path — the
+CLI never performs a network request. Dependency direction remains layered:
+Console → Application → Etoro/persistence, mirroring the existing
+Console → Application → Etoro/Analytics direction documented above.
+
+Product Milestone 2 (§20) is still not complete. This stream provides only
+a persistence foundation and a manual, offline verification tool — it does
+not add trader search, a Filament `TraderResource`, a UI
+candidate/watched/ignored workflow (the `TraderStatus` column exists and is
+preserved across re-import, but has no application- or UI-level mutation
+path), live or multi-page discovery/import (the importer only ever
+processes one already-mapped `RankingPage` per call, and the CLI always
+reads the same fixed 3-row fixture, never a live paginated eToro response),
+an import-history UI, or acceptance evidence of at least 20 actually
+imported candidates. The three synthetic fixture rows imported by the
+manual CLI in local/testing are not real candidates and must not be
+represented as satisfying that Milestone 2 acceptance criterion.
+
+The target-coverage stream described above completes, via a one-off CLI
+call against the live API, only the calculation portion of one Milestone 4
+(§20) deliverable — "minimum
 amount for coverage targets." Milestone 4 as defined in §20 is not
 complete: its remaining deliverables are a persistence-backed live
 portfolio importer, `instruments`/`portfolio_snapshots` storage,

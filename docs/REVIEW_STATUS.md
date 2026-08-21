@@ -1,16 +1,102 @@
 # REVIEW_STATUS — TradeLedger
 
-**Trenutni implementation stream:** eToro target-copy coverage —
-implementaciona grana `feature/etoro-target-coverage` (Checkpoint A–B; vidi
+**Trenutni implementation stream:** eToro trader-ranking import —
+implementaciona grana `feature/trader-ranking-import` (Checkpoint A–D; vidi
 `docs/DECISIONS.md` D-018 za razliku između naziva grane/Checkpoint oznaka i
 product milestone numeracije u `PROJECT.md` §20)
-**Status:** implementation stream `feature/etoro-target-coverage` je
-implementaciono završen (Checkpoint A: application use case; Checkpoint B:
-read-only CLI). Documentation closeout je pripremljen; stream je spreman za
-delivery/integration preko pull request-a prema `main`.
-**Poslednje ažuriranje:** 2026-08-10
+**Status:** Checkpoint A–C su implementaciono završeni i push-ovani na
+`origin/feature/trader-ranking-import` (commit `d739e4c`). Checkpoint D je
+documentation-only closeout (ovaj diff). Pull request prema `main` NIJE
+otvoren; grana NIJE mergovana.
+**Poslednje ažuriranje:** 2026-08-21
 
-## Target-copy coverage sloj — završeno
+## Trader-ranking import sloj — završeno
+
+- [x] Persistence foundation (Checkpoint A, `f22bde8`) — `traders`/
+      `import_runs` migracije, `Trader`/`ImportRun` Eloquent modeli,
+      `TraderStatus` (candidate/watched/ignored) i `ImportRunStatus`
+      (pending/running/completed/partial/failed) enum-i, factory-ji — D-024
+- [x] `App\Application\Imports\ImportRankingPage` idempotentni persistence
+      use case (Checkpoint B, `c6c7580`) — in-page identity ambiguity
+      rezolucija pre bilo kog write-a, zatim per-entry live DB rezolucija;
+      MySQL/MariaDB column-collation-aware i SQLite byte-exact equality
+      putevi; jedna transakcija po page-u; sanitizovan, count-only
+      `error_summary` — D-025
+- [x] Offline fixture-only import lanac (Checkpoint C, `d739e4c`) —
+      `App\Etoro\FixtureSources\RankingFixtureSource` →
+      `App\Etoro\Mappers\RankingsMapper` → `ImportRankingPage`,
+      orkestrirano kroz
+      `App\Application\Imports\ImportRankingPageFromFixture` — D-026
+- [x] `php artisan etoro:import-ranking-page {period}` CLI (Checkpoint C) —
+      jedini argument, fiksan `page=1`/`pageSize=3`, `sort`/`country` uvek
+      `null`; local/testing-only environment guard proveren PRE bilo kog
+      fixture I/O-a ili DB upisa
+- [x] Sanitizacija — komanda nema direktnu zavisnost ni od jednog
+      `App\Etoro` exception tipa; jedan `catch (Throwable)` sa jednom
+      statičnom porukom; nikad `getMessage()`, path, payload ili identitet
+      u outputu
+- [x] Exit-code ugovor — `0` potpun uspeh (`failure_count===0`); `1`
+      fatalni fixture/decode/shape/mapping/pagination/persistence failure
+      (uključujući environment guard); `2` invalid input
+      (`Command::INVALID`); `3` dokumentovana privatna
+      `EXIT_IMPORT_WITH_REJECTIONS` konstanta kad `ImportRun` postoji ali
+      `failure_count>0`
+- [x] Jedan kanonski, potpuno sintetički fixture —
+      `resources/fixtures/etoro/rankings.json` (premešten sa
+      `tests/Fixtures/Etoro/rankings.json`, bez duplikata, bez app→tests
+      zavisnosti)
+- [x] D-024 (persistence schema), D-025 (importer identity/collation/
+      transaction contract), D-026 (offline fixture source + CLI/
+      environment/exit-code contract) dodate u `docs/DECISIONS.md`
+
+## Trader-ranking import sloj — finalna verifikacija
+
+- `php artisan test`: **912 passed / 3017 assertions**, 0 failures, 4
+  skipped (izolovani MySQL collation testovi — nisu izvršeni bez
+  `MYSQL_COLLATION_TEST_*` konekcije)
+- `vendor/bin/phpstan analyse`: 0 errors
+- `vendor/bin/pint --test`: prošao
+- Development baza `trade_ledger` nije korišćena; nijedan live eToro poziv
+  izvršen u ovom stream-u
+
+## Šta NIJE implementirano u ovom stream-u
+
+- trader search;
+- Filament `TraderResource` ili bilo koji drugi Filament/Livewire UI;
+- UI workflow za promenu `candidate`/`watched`/`ignored` statusa (kolona
+  postoji i čuva se kroz re-import, ali nema application/UI mutacione
+  putanje);
+- live ili multi-page discovery/import (importer obrađuje jednu već
+  mapiranu `RankingPage` po pozivu; CLI uvek čita isti fiksni 3-redni
+  fixture, nikad live paginiran odgovor);
+- import history UI;
+- najmanje 20 stvarno importovanih kandidata (importovana su isključivo 3
+  sintetička fixture reda, samo u local/testing bazu — **product
+  Milestone 2 iz PROJECT.md §20 NIJE kompletan**, vidi PROJECT.md §9 za
+  potpunu listu);
+- scheduled/queued collection;
+- generički `EtoroClient`-based live rankings import/orchestration.
+
+## Trader-ranking import sloj — sledeći korak
+
+1. Otvoriti i pregledati PR `feature/trader-ranking-import` → `main`
+   (grana je push-ovana na `origin/feature/trader-ranking-import`, commit
+   `d739e4c`; PR još nije otvoren).
+2. Nakon merge-a razmotriti sledeći korak (npr. trader search, Filament
+   `TraderResource`, ili live/multi-page discovery) u skladu sa stvarnim
+   prioritetom iz `PROJECT.md`.
+
+---
+
+## Istorija: eToro target-copy coverage sloj (`feature/etoro-target-coverage`)
+
+**Status:** završeno, mergovano u `main` kao commit `144f1da` ("feat: add
+eToro target copy coverage") — lokalno dokazano
+(`git merge-base --is-ancestor 144f1da origin/main`); PR broj nije lokalno
+dokaziv, pa se ne navodi.
+**Poslednje ažuriranje ove istorijske sekcije:** 2026-08-21
+
+### Target-copy coverage sloj — završeno
 
 - [x] `App\Application\Etoro\FindTraderMinimumCopyAmountForCoverage` use
       case — Checkpoint A (`EtoroClient::userLivePortfolio()` →
@@ -46,7 +132,7 @@ delivery/integration preko pull request-a prema `main`.
       (CLI `target-coverage-percent` input contract) dodate u
       `docs/DECISIONS.md`
 
-## Target-copy coverage sloj — trenutna verifikacija
+### Target-copy coverage sloj — verifikacija na kraju grane
 
 - `php artisan test`: **819 passed / 2504 assertions**, 0 failures (1
   poznato, nepovezano upozorenje)
@@ -55,7 +141,7 @@ delivery/integration preko pull request-a prema `main`.
 - Read-only zaštite (`EtoroWriteGuard`, arch testovi protiv write metoda u
   `App\Etoro`) ostaju aktivne i pokrivene testovima
 
-## Šta NIJE implementirano u ovom stream-u
+### Šta NIJE implementirano u ovom stream-u (istorijski)
 
 - persistence, migracije, Eloquent modeli;
 - Filament/Livewire target simulator UI;
@@ -67,12 +153,19 @@ delivery/integration preko pull request-a prema `main`.
   implementaciju);
 - `--details` CLI opcija.
 
-## Target-copy coverage sloj — sledeći korak
+### Target-copy coverage sloj — sledeći korak (istorijski)
 
-1. Otvoriti i pregledati PR `feature/etoro-target-coverage` → `main`.
-2. Nakon merge-a razmotriti sledeći korak (npr. persistence sloj ili
+1. ~~Otvoriti i pregledati PR `feature/etoro-target-coverage` → `main`.~~
+   Završeno — mergovano u `main` kao commit `144f1da`.
+2. ~~Nakon merge-a razmotriti sledeći korak (npr. persistence sloj ili
    Filament/Livewire simulator UI) u skladu sa stvarnim prioritetom iz
-   `PROJECT.md`.
+   `PROJECT.md`.~~ Razrešeno — trader/ranking persistence foundation i
+   manualni fixture-only ranking import implementirani na grani
+   `feature/trader-ranking-import` (Checkpoint A–D, vidi sekciju na vrhu
+   ovog dokumenta). **Ovo NIJE puna persistencija niti product-completion**
+   — product Milestone 2 iz `PROJECT.md` §20 i dalje NIJE kompletan (vidi
+   "Šta NIJE implementirano" u sekciji na vrhu ovog dokumenta i
+   `PROJECT.md` §9).
 
 ---
 

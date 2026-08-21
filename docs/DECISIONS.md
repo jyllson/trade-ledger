@@ -819,3 +819,157 @@ argument.
   detalji, nikad originalna poruka/stack trace/payload/kredencijali.
 
 ---
+
+## D-024: Trader/ImportRun persistence schema i status model
+
+**Datum:** 2026-08-21
+**Status:** dokumentovano nakon implementacije Checkpoint A grane
+`feature/trader-ranking-import` (commit `f22bde8`), bez izmene koda —
+formalizuje postojeći, testovima potvrđen schema ugovor
+
+**Kontekst:** Checkpoint A dodao je prvu application-specific persistenciju
+u projektu — `traders`/`import_runs` tabele, `Trader`/`ImportRun` Eloquent
+modele i `TraderStatus`/`ImportRunStatus` enum-e. Ugovor dosad nije imao
+sopstveni decision zapis.
+
+**Odluka (zapis postojećeg, testovima potvrđenog ponašanja):**
+
+- `traders.external_cid` i `traders.username` su dva **nezavisna** unique
+  constraint-a na DB nivou. `external_cid` je zamišljen kao stabilan eToro
+  identitet na schema nivou (eToro-ov `cid`, primljen već normalizovan
+  preko `App\Etoro\Mappers\Support\Identifiers::normalize()`) i skladišti
+  se isključivo kao string — nikad reinterpretiran kao numerički tip.
+  **Ovo je schema-level intent, ne tvrdnja o postojećem importer
+  ponašanju:** aktuelni `ImportRankingPage` (Checkpoint B, D-025) namerno
+  fail-closed tretira isti `external_cid` sa različitim `username`-om (ili
+  obrnuto) kao controlled conflict — entry se odbija, postojeći red se
+  NIKAD tiho ne rename-uje ni rebind-uje. Ako eToro zaista dozvoljava
+  promenu username-a, obrada takve promene (npr. poseban
+  username-change/rebind workflow) zahteva sopstvenu, posebnu odluku — nije
+  pokrivena ovim ili D-025 ugovorom.
+- `TraderStatus` (`candidate`/`watched`/`ignored`) i `ImportRunStatus`
+  (`pending`/`running`/`completed`/`partial`/`failed`) su lokalni,
+  eToro-nezavisni ugovori — ne odražavaju nijedno polje koje eToro API
+  vraća. `TraderStatus` podrazumeva `candidate` pri kreiranju; nema
+  aplikacionu ili UI mutacionu putanju u ovom stream-u (vidi PROJECT.md §9
+  i D-026).
+- `import_runs` je `source`/`type`-parametrizovana audit tabela
+  (`source='etoro'`, `type='rankings'` jedini par koji se trenutno
+  koristi) — ovo NIJE tvrdnja o postojanju generičkog import/transport
+  framework-a; parametrizacija postoji da bi budući importer tipovi mogli
+  ponovo koristiti istu tabelu bez šeme promene, ne da bi opravdala
+  apstrakciju koja danas ne postoji.
+- Scope je isključivo foundation-only: nijedna druga spekulativna tabela iz
+  PROJECT.md §11 (`trader_snapshots`, `performance_points`,
+  `portfolio_snapshots`, `portfolio_positions`, `instruments`,
+  `copy_simulations`, `analysis_profiles`, `api_responses`) nije uvedena
+  ovim ili bilo kojim kasnijim checkpoint-om ove grane.
+
+---
+
+## D-025: Idempotentni ranking-page importer — identity/collation/transakcioni ugovor
+
+**Datum:** 2026-08-21
+**Status:** dokumentovano nakon implementacije Checkpoint B grane
+`feature/trader-ranking-import` (commit `c6c7580`), bez izmene koda —
+formalizuje postojeći, testovima potvrđen ugovor
+`App\Application\Imports\ImportRankingPage`
+
+**Odluka (zapis postojećeg, testovima potvrđenog ponašanja):**
+
+- `ImportRankingPage::handle()` prima već mapiran `RankingPage` i
+  `RankingQuery` — ne poziva `EtoroClient`, ne čita fixture, ne mapira
+  sirovi payload. Sav HTTP/fixture pristup je odgovornost pozivaoca.
+- Identity rezolucija je dvoslojna: (1) in-page ambiguity (entries unutar
+  iste stranice sa suprotstavljenim cid/username parovima) rezolvuje se za
+  celu stranicu PRE bilo kog write-a; (2) svaki preostali entry se zatim
+  rezolvuje protiv postojećih redova kroz stvarne, žive upite (ne
+  in-memory mapu izgrađenu unapred), tako da equality semantika tačno
+  odgovara DB-ovom sopstvenom unique indeksu.
+- Na MySQL/MariaDB, equality koristi stvarnu column collation očitanu iz
+  `information_schema.COLUMNS` (nikad pretpostavljenu), sa collation
+  imenom validiranim protiv strogog allow-list regex-a pre interpolacije u
+  SQL, i sa stvarnom fizičkom (prefiksovanom) tabelom — nikad logičkim
+  Eloquent nazivom. Na SQLite equality je PHP-exact string poređenje
+  (SQLite-ovo podrazumevano poređenje je već byte-exact po konstrukciji).
+  Svaki drugi driver fail-closed baca `RuntimeException` — nema tihog
+  fallback-a na pretpostavljenu equality semantiku.
+- Consistent duplicate (isti cid I isti username, bilo koliko puta
+  ponovljen) kolapsira u jedan trader write koristeći podatke poslednjeg
+  pojavljivanja po listing poziciji. Conflict (isti cid sa različitim
+  username-om, ili obrnuto — bilo unutar stranice, bilo protiv postojećeg
+  reda) je controlled failure: entry se odbija, postojeći red se NE
+  mutira.
+- Svi trader write-ovi za jednu stranicu I finalizujući `ImportRun` save
+  žive u JEDNOJ transakciji. Neočekivan `Throwable` u toku obrade rollback-
+  uje sve write-ove te stranice. Van te transakcije, kod zatim **best
+  effort** (ne garantovano) pokušava da postojeći `Running` `ImportRun` red
+  markira `Failed` sa sanitizovanim, count-only `error_summary`-jem (nikad
+  cid/username/payload) — taj recovery `save()` je poseban, negarantovan
+  upis van rollback-ovane transakcije. Samo ako TAJ recovery save uspe,
+  originalni uhvaćeni exception se ponovo baca pozivaocu nepromenjen. Ako
+  recovery save sam zakaže, kod ne garantuje ni očuvanje/re-throw
+  originalnog exception-a ni postojanje sanitizovanog `Failed` zapisa —
+  ovo je namerno slabiji ugovor od "uvek", ne propust u dokumentaciji.
+- `ImportRunStatus::Failed` može značiti dve suštinski različite stvari:
+  (a) svi entry-ji su bili controlled identity conflict (nula uspeha, bez
+  bačenog exception-a — normalan, ne-fatalan ishod), ili (b) neočekivan
+  persistence exception je prekinuo obradu (uvek praćen bačenim
+  exception-om). Status sam po sebi ne razlikuje ova dva slučaja — samo
+  prisustvo/odsustvo propagiranog exception-a to čini.
+
+---
+
+## D-026: Offline fixture-only ranking-page import — source, CLI/environment i exit-code ugovor
+
+**Datum:** 2026-08-21
+**Status:** dokumentovano nakon implementacije Checkpoint C grane
+`feature/trader-ranking-import` (commit `d739e4c`), bez izmene koda —
+formalizuje postojeći, testovima potvrđen ugovor
+
+**Odluka (zapis postojećeg, testovima potvrđenog ponašanja):**
+
+- Postoji tačno jedan kanonski, potpuno sintetički fixture —
+  `resources/fixtures/etoro/rankings.json` (premešten sa
+  `tests/Fixtures/Etoro/rankings.json`, bez kopije, bez app→tests
+  zavisnosti). `App\Etoro\FixtureSources\RankingFixtureSource` je jedini
+  čitalac; nije generički transport framework — `load(): array` nema
+  parametara, ne prihvata `RankingQuery`, ne poziva `EtoroClient`, ne
+  koristi `Http::fake()` kao runtime mehanizam niti mutira `etoro.*`
+  config. Fail-closed za missing/unreadable/read-failure (jedan
+  `SourceUnavailable` reason), invalid JSON, i ne-object top-level shape —
+  poruka nosi samo reason kategoriju, nikad putanju ili sadržaj fajla.
+- `App\Application\Imports\ImportRankingPageFromFixture` orkestrira
+  `RankingFixtureSource → RankingsMapper → ImportRankingPage`. Nakon
+  mapiranja, PRE poziva `ImportRankingPage::handle()`, poredi mapiranu
+  `RankingPagination` sa prosleđenim `RankingQuery::page`/`pageSize`;
+  mismatch baca istu `RankingFixtureException` (reason
+  `PaginationMismatch`) — nula `ImportRun`/`Trader` upisa. Use case sam ne
+  hvata nijedan exception.
+- CLI signature (`etoro:import-ranking-page {period}`) ima tačno jedan
+  argument — `period`, trimovan, simulirana `RankingQuery` metadata bez
+  mrežnog dejstva. `page`/`pageSize` su hardkodovani na `1`/`3` (fixture-ove
+  jedine stvarne vrednosti); `sort`/`country` uvek `null`. Environment
+  guard (`app()->environment(['local', 'testing'])`) se proverava KAO PRVI
+  red u `handle()` — pre input parsing-a, pre fixture I/O-a, pre bilo kog
+  DB upisa; van tih okruženja komanda vraća `Command::FAILURE` sa
+  statičnom porukom, bez čitanja config/env fajla ili kredencijala.
+- Komanda nema direktnu zavisnost ni od `RankingFixtureSource`/
+  `RankingsMapper`/`ImportRankingPage`/`EtoroClient`, niti od bilo kog
+  `App\Etoro` exception tipa (`RankingFixtureException`,
+  `EtoroMappingException`, ...) — zavisi isključivo od
+  `ImportRankingPageFromFixture`. Postoji tačno jedan `catch (Throwable)`
+  blok koji pokriva svaki fatalni fixture/decode/shape/mapping/pagination/
+  persistence slučaj jednom potpuno statičnom porukom ("Offline fixture
+  ranking-page import failed.") — nikad `$exception->getMessage()`, path,
+  payload ili identitet.
+- Exit-code ugovor koristi tačno tri Symfony `Command` konstante plus jednu
+  dokumentovanu privatnu: `0` (`SUCCESS`) — `ImportRun` sa
+  `failure_count===0`; `1` (`FAILURE`) — environment guard odbijen ILI bilo
+  koji fatalni `Throwable` iz use case-a; `2` (`INVALID`) — prazan/
+  whitespace-only `period`, pre bilo kog I/O-a; `3` — privatna
+  `EXIT_IMPORT_WITH_REJECTIONS` konstanta kad `ImportRun` postoji ali
+  `failure_count>0` (Partial ili Failed status). Nema `--live` opcije niti
+  bilo kog mehanizma da se ovaj tok preusmeri na pravi eToro poziv.
+
+---
