@@ -16,6 +16,7 @@ use Illuminate\Support\Carbon;
 /**
  * @property int $id
  * @property int|null $parent_import_run_id
+ * @property int|null $retry_of_import_run_id
  * @property string $source
  * @property string $type
  * @property ImportRunStatus $status
@@ -29,7 +30,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['parent_import_run_id', 'source', 'type', 'status', 'metadata', 'request_count', 'success_count', 'failure_count', 'started_at', 'finished_at', 'error_summary'])]
+#[Fillable(['parent_import_run_id', 'retry_of_import_run_id', 'source', 'type', 'status', 'metadata', 'request_count', 'success_count', 'failure_count', 'started_at', 'finished_at', 'error_summary'])]
 class ImportRun extends Model
 {
     /** @use HasFactory<ImportRunFactory> */
@@ -42,6 +43,7 @@ class ImportRun extends Model
     {
         return [
             'parent_import_run_id' => 'integer',
+            'retry_of_import_run_id' => 'integer',
             'status' => ImportRunStatus::class,
             'metadata' => 'array',
             'request_count' => 'integer',
@@ -73,6 +75,29 @@ class ImportRun extends Model
     public function childRuns(): HasMany
     {
         return $this->hasMany(self::class, 'parent_import_run_id');
+    }
+
+    /**
+     * The run this one is a manual retry of — the run it immediately
+     * followed in a retry chain, never the chain's root. Null for every
+     * ordinary (non-retry) run.
+     *
+     * @return BelongsTo<ImportRun, $this>
+     */
+    public function retryOfRun(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'retry_of_import_run_id');
+    }
+
+    /**
+     * Runs created as a manual retry of THIS run — the immediate next
+     * attempt(s) in a retry chain, not any further descendant.
+     *
+     * @return HasMany<ImportRun, $this>
+     */
+    public function retryAttempts(): HasMany
+    {
+        return $this->hasMany(self::class, 'retry_of_import_run_id');
     }
 
     /**

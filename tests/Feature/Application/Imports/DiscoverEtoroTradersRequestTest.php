@@ -91,6 +91,36 @@ it('accepts rankingQueryForPage() above startPage', function (): void {
     expect($request->rankingQueryForPage(9)->page)->toBe(9);
 });
 
+// --- Checkpoint H1: retryOfImportRunId --------------------------------------
+
+it('defaults retryOfImportRunId to null and remains source-compatible with existing positional callers', function (): void {
+    $request = new DiscoverEtoroTradersRequest('lastYear', 1, 5, '-copiers', 'US');
+
+    expect($request->retryOfImportRunId)->toBeNull();
+});
+
+it('accepts a retryOfImportRunId of exactly 1', function (): void {
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 1, retryOfImportRunId: 1);
+
+    expect($request->retryOfImportRunId)->toBe(1);
+});
+
+it('accepts a retryOfImportRunId above 1', function (): void {
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 1, retryOfImportRunId: 42);
+
+    expect($request->retryOfImportRunId)->toBe(42);
+});
+
+it('rejects a retryOfImportRunId of 0', function (): void {
+    expect(fn () => new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 1, retryOfImportRunId: 0))
+        ->toThrow(InvalidArgumentException::class);
+});
+
+it('rejects a negative retryOfImportRunId', function (): void {
+    expect(fn () => new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 1, retryOfImportRunId: -1))
+        ->toThrow(InvalidArgumentException::class);
+});
+
 it('builds a deterministic RankingQuery for a given page with pageSize fixed at 20', function (): void {
     $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 3, maxPages: 5, sort: '-copiers', country: 'US');
 

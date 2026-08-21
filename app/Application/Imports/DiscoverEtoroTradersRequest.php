@@ -32,6 +32,7 @@ final readonly class DiscoverEtoroTradersRequest
         public int $maxPages,
         ?string $sort = null,
         ?string $country = null,
+        public ?int $retryOfImportRunId = null,
     ) {
         $trimmedPeriod = trim($period);
 
@@ -47,6 +48,10 @@ final readonly class DiscoverEtoroTradersRequest
 
         if ($maxPages < 1 || $maxPages > self::MAX_PAGES_CEILING) {
             throw new InvalidArgumentException('maxPages must be between 1 and '.self::MAX_PAGES_CEILING.'.');
+        }
+
+        if ($retryOfImportRunId !== null && $retryOfImportRunId < 1) {
+            throw new InvalidArgumentException('retryOfImportRunId must be null or at least 1.');
         }
 
         $this->sort = self::normalizeOptional($sort);

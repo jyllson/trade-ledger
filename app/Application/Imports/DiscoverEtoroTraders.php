@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Application\Imports;
 
 use App\Etoro\EtoroClient;
+use App\Etoro\EtoroErrorCategory;
 use App\Etoro\Exceptions\EtoroConfigurationException;
 use App\Etoro\Exceptions\EtoroMappingException;
 use App\Etoro\Exceptions\EtoroRequestException;
@@ -72,7 +73,7 @@ final class DiscoverEtoroTraders
                 } catch (EtoroRequestException $exception) {
                     $requestCount += $exception->attemptCount;
 
-                    return $this->finalize($aggregateRun, DiscoverEtoroTradersStopReason::RequestFailed, $pagesFetched, $requestCount, $successCount, $failureCount, $childImportRunIds, $request);
+                    return $this->finalize($aggregateRun, DiscoverEtoroTradersStopReason::RequestFailed, $pagesFetched, $requestCount, $successCount, $failureCount, $childImportRunIds, $request, $exception->category, $exception->retryAfterSeconds);
                 } catch (EtoroUnexpectedResponseException $exception) {
                     $requestCount += $exception->attemptCount;
 
@@ -133,6 +134,7 @@ final class DiscoverEtoroTraders
     private function createAggregateRun(DiscoverEtoroTradersRequest $request): ImportRun
     {
         return ImportRun::create([
+            'retry_of_import_run_id' => $request->retryOfImportRunId,
             'source' => self::SOURCE,
             'type' => self::AGGREGATE_TYPE,
             'status' => ImportRunStatus::Running,
@@ -174,6 +176,8 @@ final class DiscoverEtoroTraders
         int $failureCount,
         array $childImportRunIds,
         DiscoverEtoroTradersRequest $request,
+        ?EtoroErrorCategory $requestErrorCategory = null,
+        ?int $retryAfterSeconds = null,
     ): DiscoverEtoroTradersResult {
         $status = $this->determineStatus($stopReason, $pagesFetched, $failureCount);
 
@@ -184,11 +188,15 @@ final class DiscoverEtoroTraders
             'failure_count' => $failureCount,
             'finished_at' => now(),
             'error_summary' => $this->buildErrorSummary($stopReason, $status, $pagesFetched, $failureCount),
-            'metadata' => array_merge($this->initialMetadata($request), [
-                'stop_reason' => $stopReason->value,
-                'pages_fetched' => $pagesFetched,
-                'child_import_run_ids' => $childImportRunIds,
-            ]),
+            'metadata' => array_merge(
+                $this->initialMetadata($request),
+                [
+                    'stop_reason' => $stopReason->value,
+                    'pages_fetched' => $pagesFetched,
+                    'child_import_run_ids' => $childImportRunIds,
+                ],
+                $this->retryEligibilityMetadata($stopReason, $requestErrorCategory, $retryAfterSeconds),
+            ),
         ])->save();
 
         return new DiscoverEtoroTradersResult(
@@ -197,6 +205,51 @@ final class DiscoverEtoroTraders
             pagesFetched: $pagesFetched,
             childImportRunIds: $childImportRunIds,
         );
+    }
+
+    /**
+     * Sanitized retry-eligibility metadata for every terminal aggregate
+     * run. Manual retry is eligible ONLY for a request failure whose
+     * category is ServerError, ConnectionFailed, or RateLimited — never
+     * Validation/Authentication/Authorization/NotFound, and never any
+     * non-request stop reason (configuration, unexpected response,
+     * mapping, pagination mismatch, page limit, natural completion, or an
+     * unexpected persistence failure). Only the sanitized category enum
+     * value and a derived retry_not_before timestamp are ever persisted —
+     * never a request ID, transport message/detail, URL, payload,
+     * credential, header, or raw exception message.
+     *
+     * @return array<string, mixed>
+     */
+    private function retryEligibilityMetadata(
+        DiscoverEtoroTradersStopReason $stopReason,
+        ?EtoroErrorCategory $requestErrorCategory,
+        ?int $retryAfterSeconds,
+    ): array {
+        $metadata = ['retryable' => $this->isRetryable($stopReason, $requestErrorCategory)];
+
+        if ($requestErrorCategory !== null) {
+            $metadata['request_error_category'] = $requestErrorCategory->value;
+
+            if ($retryAfterSeconds !== null && $retryAfterSeconds > 0) {
+                $metadata['retry_not_before'] = now()->addSeconds($retryAfterSeconds)->toIso8601String();
+            }
+        }
+
+        return $metadata;
+    }
+
+    private function isRetryable(DiscoverEtoroTradersStopReason $stopReason, ?EtoroErrorCategory $requestErrorCategory): bool
+    {
+        if ($stopReason !== DiscoverEtoroTradersStopReason::RequestFailed || $requestErrorCategory === null) {
+            return false;
+        }
+
+        return in_array($requestErrorCategory, [
+            EtoroErrorCategory::ServerError,
+            EtoroErrorCategory::ConnectionFailed,
+            EtoroErrorCategory::RateLimited,
+        ], true);
     }
 
     private function determineStatus(DiscoverEtoroTradersStopReason $stopReason, int $pagesFetched, int $failureCount): ImportRunStatus

@@ -10,8 +10,10 @@ use App\Models\ImportRun;
 use App\Models\ImportRunFailureReason;
 use App\Models\ImportRunStatus;
 use App\Models\Trader;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 
@@ -63,6 +65,10 @@ beforeEach(function () {
         'etoro.connect_timeout_seconds' => 2,
     ]);
     Http::preventStrayRequests();
+});
+
+afterEach(function (): void {
+    Carbon::setTestNow(null);
 });
 
 // --- A. Natural completion, single page ---------------------------------
@@ -581,4 +587,192 @@ it('(b) propagates the RECOVERY exception instead when the best-effort aggregate
     // as createAggregateRun() left it: Running.
     expect($aggregateRun->status)->toBe(ImportRunStatus::Running)
         ->and($aggregateRun->finished_at)->toBeNull();
+});
+
+// --- H. Checkpoint H1: retry lineage and sanitized retry-eligibility metadata
+
+it('persists retryOfImportRunId onto the aggregate run', function (): void {
+    Sleep::fake();
+    Http::fake([
+        DISCOVERY_RANKINGS_URL => Http::response(
+            discoverTradersRankingsPayload([discoverTradersEntry('1001', 'trader_a')], page: 1, pageSize: 20, totalItems: 1, hasNext: false),
+            200,
+        ),
+    ]);
+
+    $original = ImportRun::factory()->create(['type' => 'rankings_discovery']);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5, retryOfImportRunId: $original->id);
+    $result = discoverTradersUseCase()->handle($request);
+
+    expect($result->importRun->retry_of_import_run_id)->toBe($original->id);
+});
+
+it('leaves retry_of_import_run_id null for an ordinary (non-retry) discovery call', function (): void {
+    Sleep::fake();
+    Http::fake([
+        DISCOVERY_RANKINGS_URL => Http::response(
+            discoverTradersRankingsPayload([discoverTradersEntry('1001', 'trader_a')], page: 1, pageSize: 20, totalItems: 1, hasNext: false),
+            200,
+        ),
+    ]);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    expect($result->importRun->retry_of_import_run_id)->toBeNull();
+});
+
+it('marks every terminal aggregate run with an explicit retryable boolean, even on natural completion', function (): void {
+    Sleep::fake();
+    Http::fake([
+        DISCOVERY_RANKINGS_URL => Http::response(
+            discoverTradersRankingsPayload([discoverTradersEntry('1001', 'trader_a')], page: 1, pageSize: 20, totalItems: 1, hasNext: false),
+            200,
+        ),
+    ]);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    expect($result->importRun->metadata)->toHaveKey('retryable')
+        ->and($result->importRun->metadata['retryable'])->toBeFalse()
+        ->and($result->importRun->metadata)->not->toHaveKey('request_error_category');
+});
+
+it('marks retryable=true with the sanitized transient category, for a zero-page Failed request failure', function (string $status, string $expectedCategory) {
+    Sleep::fake();
+    Http::fake([DISCOVERY_RANKINGS_URL => Http::response(['error' => 'boom-SENTINEL'], (int) $status)]);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    expect($result->importRun->status)->toBe(ImportRunStatus::Failed)
+        ->and($result->importRun->metadata['retryable'])->toBeTrue()
+        ->and($result->importRun->metadata['request_error_category'])->toBe($expectedCategory)
+        ->and($result->importRun->metadata)->not->toContain('boom-SENTINEL');
+})->with([
+    'server_error (500)' => ['500', 'server_error'],
+    'server_error (503)' => ['503', 'server_error'],
+    'rate_limited (429)' => ['429', 'rate_limited'],
+]);
+
+it('marks retryable=true for a connection failure (transient, physical retries exhausted)', function (): void {
+    Sleep::fake();
+    Http::fake(fn () => throw new ConnectionException('simulated connection failure'));
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    expect($result->importRun->status)->toBe(ImportRunStatus::Failed)
+        ->and($result->importRun->metadata['retryable'])->toBeTrue()
+        ->and($result->importRun->metadata['request_error_category'])->toBe('connection_failed');
+});
+
+it('marks retryable=false with the sanitized non-transient category, for every non-retryable EtoroErrorCategory', function (string $status, string $expectedCategory) {
+    Sleep::fake();
+    Http::fake([DISCOVERY_RANKINGS_URL => Http::response(['error' => 'boom-SENTINEL'], (int) $status)]);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    expect($result->importRun->status)->toBe(ImportRunStatus::Failed)
+        ->and($result->importRun->metadata['retryable'])->toBeFalse()
+        ->and($result->importRun->metadata['request_error_category'])->toBe($expectedCategory)
+        ->and($result->importRun->metadata)->not->toHaveKey('retry_not_before');
+})->with([
+    'validation (400)' => ['400', 'validation'],
+    'authentication (401)' => ['401', 'authentication'],
+    'authorization (403)' => ['403', 'authorization'],
+    'not_found (404)' => ['404', 'not_found'],
+]);
+
+it('marks retryable=false and omits request_error_category for every non-request stop reason', function (): void {
+    Sleep::fake();
+    config(['etoro.enabled' => false]);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    expect($result->stopReason)->toBe(DiscoverEtoroTradersStopReason::ConfigurationError)
+        ->and($result->importRun->metadata['retryable'])->toBeFalse()
+        ->and($result->importRun->metadata)->not->toHaveKey('request_error_category');
+});
+
+it('marks retryable=true for a request failure that happens AFTER one successful page (Partial, some pages)', function (): void {
+    Sleep::fake();
+
+    $callCount = 0;
+    Http::fake([
+        DISCOVERY_RANKINGS_URL => function () use (&$callCount) {
+            $callCount++;
+
+            if ($callCount === 1) {
+                return Http::response(discoverTradersRankingsPayload([discoverTradersEntry('1001', 'trader_a')], page: 1, pageSize: 20, totalItems: 2, hasNext: true), 200);
+            }
+
+            return Http::response(['error' => 'boom'], 500);
+        },
+    ]);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    expect($result->importRun->status)->toBe(ImportRunStatus::Partial)
+        ->and($result->importRun->metadata['retryable'])->toBeTrue()
+        ->and($result->importRun->metadata['request_error_category'])->toBe('server_error');
+});
+
+it('derives retry_not_before as an ISO timestamp from a positive Retry-After header, using frozen time', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-08-21T14:05:00+00:00'));
+    Sleep::fake();
+    Http::fake([
+        DISCOVERY_RANKINGS_URL => Http::response(['error' => 'boom'], 429, ['Retry-After' => '30']),
+    ]);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    expect($result->importRun->metadata['retryable'])->toBeTrue()
+        ->and($result->importRun->metadata['retry_not_before'])->toBe('2026-08-21T14:05:30+00:00');
+});
+
+it('omits retry_not_before when no Retry-After header is supplied', function (): void {
+    Sleep::fake();
+    Http::fake([DISCOVERY_RANKINGS_URL => Http::response(['error' => 'boom'], 500)]);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    expect($result->importRun->metadata)->not->toHaveKey('retry_not_before');
+});
+
+it('omits retry_not_before when Retry-After is zero (not a positive value)', function (): void {
+    Sleep::fake();
+    Http::fake([
+        DISCOVERY_RANKINGS_URL => Http::response(['error' => 'boom'], 429, ['Retry-After' => '0']),
+    ]);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    expect($result->importRun->metadata['retryable'])->toBeTrue()
+        ->and($result->importRun->metadata)->not->toHaveKey('retry_not_before');
+});
+
+it('never persists a request ID, transport detail, URL, payload, credential, header, or raw exception message in retry-eligibility metadata', function (): void {
+    Sleep::fake();
+    Http::fake([
+        DISCOVERY_RANKINGS_URL => Http::response(['error' => 'boom-SENTINEL-LEAK'], 500, ['X-Request-Id' => 'req-SENTINEL-LEAK']),
+    ]);
+
+    $request = new DiscoverEtoroTradersRequest(period: 'lastYear', startPage: 1, maxPages: 5);
+    $result = discoverTradersUseCase()->handle($request);
+
+    $encodedMetadata = json_encode($result->importRun->metadata);
+
+    expect($encodedMetadata)->not->toContain('SENTINEL-LEAK')
+        ->and($encodedMetadata)->not->toContain('test-api-key-value-sentinel')
+        ->and($encodedMetadata)->not->toContain('test-user-key-value-sentinel')
+        ->and($encodedMetadata)->not->toContain('rankings?period');
 });
