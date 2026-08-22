@@ -973,3 +973,227 @@ formalizuje postojeći, testovima potvrđen ugovor
   bilo kog mehanizma da se ovaj tok preusmeri na pravi eToro poziv.
 
 ---
+
+## D-027: Live multi-page ranking discovery — orkestracija, pacing, lineage ugovor
+
+**Datum:** 2026-08-21
+**Status:** dokumentovano nakon implementacije Checkpoint E grane
+`codex/milestone-2-discovery-and-ui` (commit `8a3204b`), bez izmene koda —
+formalizuje postojeći, testovima potvrđen ugovor
+`App\Application\Imports\DiscoverEtoroTraders`
+
+**Odluka (zapis postojećeg, testovima potvrđenog ponašanja):**
+
+- `DiscoverEtoroTraders::handle(DiscoverEtoroTradersRequest):
+  DiscoverEtoroTradersResult` kreira TAČNO JEDAN `rankings_discovery`
+  agregatni `ImportRun` (source `etoro`, status `Running`) PRE prvog HTTP
+  poziva — transportni/mapping/paginacioni/neočekivani failure ostaje
+  vidljiv u import istoriji čak i kad nijedna stranica nikad ne uspe.
+- `DiscoverEtoroTradersRequest` je centralni, autoritativni value object:
+  `period` (trimovan, ne-prazan), `startPage>=1`, `maxPages` između 1 i 20
+  (`MAX_PAGES_CEILING`), opcioni `sort`/`country` (prazan string posle
+  trim-a → `null`). `PAGE_SIZE` je fiksna konstanta = 20, nikad
+  korisnički konfigurabilna. Nikad ne veruje da je pozivalac (CLI,
+  Filament) već validirao — sopstveni konstruktor je jedini izvor istine.
+- Pipeline po stranici: `EtoroClient::rankings()` →
+  `RankingsMapper` → `ImportRankingPage::handle($rankingPage,
+  $rankingQuery, $aggregateRun->id)`. `Illuminate\Support\Sleep::sleep(2)`
+  se poziva ISKLJUČIVO između fizički odvojenih poziva stranica — nikad
+  pre prve niti posle poslednje stranice.
+- `request_count` na agregatnom redu odražava STVARNE fizičke HTTP
+  pokušaje, uključujući `EtoroClient`-ove sopstvene interne retry-je —
+  nikad logičan broj stranica.
+- Pre bilo kog write-a za stranicu, `rankingPage->pagination->page`/
+  `pageSize` se poredi sa poslatim `RankingQuery` — mismatch zaustavlja
+  tok (`PaginationMismatch` stop reason) sa nula write-ova za tu stranicu.
+- `DiscoverEtoroTradersStopReason` enum: `NaturalCompletion`,
+  `PageLimitReached`, `PaginationMismatch`, `ConfigurationError`,
+  `RequestFailed`, `UnexpectedResponse`, `MappingFailed`,
+  `UnexpectedFailure`. Status se određuje ovako: `NaturalCompletion` sa
+  `pagesFetched>0` → `Completed` ako je `failureCount===0`, inače
+  `Partial`; svaki drugi stop reason → `Partial` ako je `pagesFetched>0`,
+  inače `Failed`.
+- `import_runs.parent_import_run_id` (nullable self-FK, `nullOnDelete`)
+  povezuje svaki per-page `rankings` child `ImportRun` nazad na agregatni
+  red koji ga je pokrenuo. `ImportRankingPage::handle()` fail-closed
+  odbija svaki `parentImportRunId` koji ne referencira postojeći
+  `etoro`/`rankings_discovery`/`Running` agregatni red.
+- Neočekivan `Throwable` tokom obrade prati isti "best effort, ne
+  garantovano" recovery ugovor kao D-025: van bilo koje transakcije, kod
+  pokušava da agregatni red markira `Failed` sa sanitizovanim,
+  count-only `error_summary`-jem; ako TAJ recovery save uspe, originalni
+  exception se ponovo baca nepromenjen; ako recovery save sam zakaže, ta
+  nova greška se prosleđuje umesto originalne, a agregatni red može
+  ostati ne-terminalan (npr. zaglavljen na `Running`).
+
+---
+
+## D-028: Row-level failure persistence — `import_run_failures` ugovor
+
+**Datum:** 2026-08-21
+**Status:** dokumentovano nakon implementacije Checkpoint F grane
+`codex/milestone-2-discovery-and-ui` (commit `b1b06d6`), bez izmene koda —
+formalizuje postojeći, testovima potvrđen ugovor
+
+**Odluka (zapis postojećeg, testovima potvrđenog ponašanja):**
+
+- `import_run_failures` tabela: `import_run_id` FK (`cascadeOnDelete`),
+  `row_number` (1-based pozicija unutar stranice, čuva originalni
+  server-vraćeni redosled), `external_cid`, `username`, `reason`,
+  `unique(import_run_id, row_number)`.
+- `ImportRunFailureReason` enum: `IdentityConflictWithinPage`,
+  `IdentityConflictWithExistingTrader` — jedina dva scenarija koja
+  `ImportRankingPage` trenutno razlikuje.
+- Jedini writer je `ImportRankingPage`, i to ISKLJUČIVO protiv per-page
+  `rankings` (ili fixture-only single-page) reda koji finalizuje — nikad
+  protiv `rankings_discovery` agregatnog reda direktno. Write se dešava
+  unutar ISTE transakcije kao trader write-ovi i finalizujući `ImportRun`
+  save za tu stranicu — rollback te transakcije briše i pokušani
+  `ImportRunFailure` red.
+- `ImportRun::failures()` — `HasMany`, direktni failure-ovi OVOG reda.
+- `ImportRun::childFailures()` — `HasManyThrough`, tačno JEDAN nivo
+  dubine: svi `ImportRunFailure` redovi agregatnog reda DIREKTNIH
+  `childRuns()`, bez duplikacije na sam agregat. Čisto integer FK join
+  (bez collation-osetljivog string poređenja), radi identično na SQLite i
+  MySQL.
+- Ovo je činjenica o ponašanju trenutnog writer-a, ne DB/model-nivoa
+  ograničenje — `import_run_id` FK sam po sebi ne ograničava koji `type`
+  reda referencira.
+
+---
+
+## D-029: Trader profile lookup — identity/enrichment ugovor
+
+**Datum:** 2026-08-21
+**Status:** dokumentovano nakon implementacije Checkpoint G grane
+`codex/milestone-2-discovery-and-ui` (commit `7efd3b1`) i korekcije
+primenjene tokom Checkpoint H1 review-a (deo commit-a `c0c4d06`), bez
+izmene van tih commit-a — formalizuje postojeći, testovima potvrđen ugovor
+
+**Odluka (zapis postojećeg, testovima potvrđenog ponašanja):**
+
+- `App\Application\Traders\TraderUsername` je centralni, immutable
+  query/identity value object deljen između lokalnog i remote lookup-a:
+  odbija NUL byte, trimuje samo whitespace charlist (`" \t\n\r\v\f"`),
+  odbija prazan string. Exact-match semantika — bez wildcard/LIKE
+  pretrage.
+- `FindStoredTraderByUsername` — lokalni, read-only, exact lookup preko
+  `traders.username`; rezultat se vraća samo ako je stvarni spremljeni
+  username PHP-exact (`===`) jednak normalizovanom query-ju — fail-closed
+  odbrana od case-insensitive MySQL collation-a (npr.
+  `utf8mb4_unicode_ci`), bez oslanjanja na to da je `WHERE` klauzula sama
+  po sebi exact.
+- `traders` tabela ima šest nullable "observed profile" kolona
+  (`profile_gcid`, `profile_is_popular_investor`, `profile_is_verified`,
+  `profile_country_code`, `profile_language_iso_code`,
+  `profile_synced_at`). `profile_gcid` nosi NULTU unique/index/identity
+  semantiku — nikad se ne poredi sa niti koristi za pretragu po
+  `external_cid`/ranking `cid`-u.
+- `LookupEtoroTraderProfile::handle(TraderUsername):
+  LookupEtoroTraderProfileResult` kreira TAČNO JEDAN `profile` `ImportRun`
+  pre prvog HTTP poziva. Pipeline: `EtoroClient::userProfile()` →
+  `TraderProfileMapper` → exact identity provera (mapirani
+  `profile->username` MORA biti PHP-exact jednak query username-u, inače
+  `ProfileIdentityMismatch` — `Failed`, bez mutacije) → opciono lokalno
+  obogaćivanje preko `FindStoredTraderByUsername`.
+- NIKAD ne kreira `Trader` iz profile odgovora — obogaćivanje mutira
+  ISKLJUČIVO šest profile polja + `profile_synced_at` na VEĆ POSTOJEĆEM
+  redu; `external_cid`, `username`, ranking polja i `status` ostaju
+  netaknuti.
+- Trader mutacija i uspešan (`Completed`) `ImportRun` finalize save dele
+  JEDNU transakciju (korekcija primenjena tokom H1 review-a) — ako
+  finalize save padne, trader mutacija se rollback-uje zajedno s njim, i
+  slučaj pada u isti best-effort `UnexpectedFailure` recovery ugovor kao
+  D-025/D-027.
+- Ponovljeni lookup je idempotentan po broju `Trader` redova; svaki poziv
+  pravi nov `profile` `ImportRun` audit red.
+
+---
+
+## D-030: Trader status tranzicije i discovery retry — eligibility/lineage ugovor
+
+**Datum:** 2026-08-21
+**Status:** dokumentovano nakon implementacije Checkpoint H1 grane
+`codex/milestone-2-discovery-and-ui` (commit `c0c4d06`), bez izmene koda —
+formalizuje postojeći, testovima potvrđen ugovor
+
+**Odluka (zapis postojećeg, testovima potvrđenog ponašanja):**
+
+- `App\Application\Traders\ChangeTraderStatus` je jedina poslovna ulazna
+  tačka za promenu `TraderStatus` (`Candidate`/`Watched`/`Ignored`). Poziv
+  na isti status je idempotentan no-op po ishodu.
+- `import_runs.retry_of_import_run_id` (nullable self-FK, `nullOnDelete`)
+  je ODVOJEN od `parent_import_run_id` — identifikuje NEPOSREDNO
+  retry-ovani red, nikad koren lanca (C retry-uje B retry-uje A ⇒
+  `C.retry_of_import_run_id = B.id`, NIKAD `= A.id`).
+- `DiscoverEtoroTradersRequest` ima opcioni, poslednji `retryOfImportRunId`
+  (`null` ili `>=1`) — source-compatible sa svim postojećim pozivaocima.
+- Svaki terminalni `rankings_discovery` agregatni red sada nosi
+  sanitizovanu retry-eligibility metadata: `retryable` (boolean, UVEK
+  prisutan), `request_error_category` (enum vrednost, prisutna SAMO kad
+  je stvarni request failure) i `retry_not_before` (ISO-8601, prisutan
+  SAMO kad je isporučen pozitivan `Retry-After`). NIKAD request ID,
+  transport detalj, URL, payload, kredencijal ili header.
+- Retryable je ISKLJUČIVO kad je `stop_reason=request_failed` I kategorija
+  ∈ {`server_error`, `connection_failed`, `rate_limited`} —
+  Validation/Authentication/Authorization/NotFound i svaki ne-request
+  stop reason nikad nisu retryable.
+- `App\Application\Imports\RetryEtoroTraderDiscovery::canRetry()` i
+  `::handle()` dele JEDAN privatni eligibility gate — nikad duplirana
+  logika. Fail-closed PRE bilo kog HTTP poziva na: red nije persisted,
+  pogrešan source/type/status, `retryable` nije striktno `true`,
+  nekonzistentan `retryable`/`stop_reason`/`category` signal (nikad se ne
+  veruje `retryable=true` izolovano), malformisana metadata (validirana
+  preko `getRawOriginal()` + `json_decode(..., JSON_THROW_ON_ERROR)`
+  protiv PERSISTED kolone, nikad protiv već-cast in-memory atributa — tako
+  da eventualna in-memory mutacija koju pozivalac napravi pre poziva nikad
+  ne može uticati na eligibility odluku), budući `retry_not_before`
+  (strogo ISO-8601 round-trip parsiranje, nikad `Carbon::parse()`-ovo
+  permisivno relativno parsiranje koje bi prihvatilo npr. "tomorrow").
+- Retry NIKAD ne mutira niti ponovo otvara originalni red — retry je
+  običan nov discovery poziv, povezan nazad isključivo preko sopstvenog
+  `retry_of_import_run_id`.
+
+---
+
+## D-031: Filament read-only UI granica i profile freshness pravilo
+
+**Datum:** 2026-08-21
+**Status:** dokumentovano nakon implementacije Checkpoint H2 grane
+`codex/milestone-2-discovery-and-ui` (commit `51b32e1`), bez izmene koda —
+formalizuje postojeći, testovima potvrđen ugovor
+
+**Odluka (zapis postojećeg, testovima potvrđenog ponašanja):**
+
+- `App\Application\Traders\EvaluateTraderProfileFreshness` je JEDINO mesto
+  gde se računa profile freshness (`never_synced`/`fresh`/`stale`) —
+  Filament sloj ga nikad ne računa sam. Profil je stale STROGO POSLE 24h
+  proteklog vremena od `profile_synced_at` (tačno 24h00m00s je i dalje
+  `fresh`). `profile_synced_at` u budućnosti je UVEK `fresh`, bez obzira
+  koliko daleko u budućnosti — "aged" znači isključivo proteklo prošlo
+  vreme, nikad apsolutna/signed udaljenost (clock skew ne sme značiti
+  "stariji podatak").
+- `TraderResource`/`ImportRunResource`: samo List+View rute; nema
+  Create/Edit/Delete/replicate/bulk-delete rute niti akcije;
+  `canCreate()` vraća `false`.
+- `TraderResource` red-akcije (Mark candidate/Watch/Ignore/Lookup profile)
+  pozivaju ISKLJUČIVO `ChangeTraderStatus`/`LookupEtoroTraderProfile` —
+  nikad direktnu mutaciju modela. Ignore zahteva potvrdu.
+- `ImportRunResource` retry akcija vidljivost proverava ISKLJUČIVO preko
+  `RetryEtoroTraderDiscovery::canRetry()` — nikad duplira eligibility
+  logiku. Infolist je striktna whitelist po ključu (`data_get()` po
+  imenu) — nikad renderuje sirovi `metadata` niz u celini.
+- `DiscoverTraders` custom stranica: renderovanje NIKAD ne pravi HTTP
+  poziv. Dve native Filament akcije (Run discovery / Lookup profile)
+  konstruišu `DiscoverEtoroTradersRequest`/`TraderUsername` i pozivaju
+  `DiscoverEtoroTraders`/`LookupEtoroTraderProfile` isključivo unutar
+  sopstvenih `action()` closure-a. Notification status/tekst grana se po
+  `stopReason` — nezavršen profile lookup nikad ne tvrdi match/no-match
+  jezik, pošto mapping/identity-mismatch/unexpected-response failure
+  takođe mogu nastati NAKON stvarnog HTTP odgovora (samo `Completed`
+  proizvodi validiran, identity-matched mapirani profil).
+- Svaka nova `App\Filament` klasa je arhitektonski testirana da dokaže
+  odsustvo `EtoroClient`/`Http`/`DB`/`config`/`env`/`Storage`/`Log`/`Queue`
+  zavisnosti i odsustvo duplirane freshness/retry-eligibility logike.
+
+---

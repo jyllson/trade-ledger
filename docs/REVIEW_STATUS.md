@@ -1,16 +1,160 @@
 # REVIEW_STATUS — TradeLedger
 
-**Trenutni implementation stream:** eToro trader-ranking import —
-implementaciona grana `feature/trader-ranking-import` (Checkpoint A–D; vidi
-`docs/DECISIONS.md` D-018 za razliku između naziva grane/Checkpoint oznaka i
-product milestone numeracije u `PROJECT.md` §20)
-**Status:** Checkpoint A–C su implementaciono završeni i push-ovani na
-`origin/feature/trader-ranking-import` (commit `d739e4c`). Checkpoint D je
-documentation-only closeout (ovaj diff). Pull request prema `main` NIJE
-otvoren; grana NIJE mergovana.
-**Poslednje ažuriranje:** 2026-08-21
+**Trenutni implementation stream:** product Milestone 2 (discovery i
+trader storage — `PROJECT.md` §20) — implementaciona grana
+`codex/milestone-2-discovery-and-ui` (Checkpoint E–I; grana kreirana od
+`main` tip-a `cf5ac83`, koji je sam merge Checkpoint A–D grane
+`feature/trader-ranking-import`, vidi istorijsku sekciju ispod; vidi
+`docs/DECISIONS.md` D-018 za razliku između naziva grane/Checkpoint oznaka
+i product milestone numeracije u `PROJECT.md` §20)
+**Status:** Checkpoint E–H2 su implementaciono završeni, push-ovani na
+`origin/codex/milestone-2-discovery-and-ui` (tip `51b32e1`), svaki
+pregledan i odobren pre commit-a. Checkpoint I je documentation-only
+closeout + reproducibilan OFFLINE acceptance (ovaj diff) — **ne uključuje
+live eToro poziv niti pristup razvojnoj bazi `trade_ledger`**. Pull
+request prema `main` NIJE otvoren; grana NIJE mergovana.
+**Poslednje ažuriranje:** 2026-08-22
 
-## Trader-ranking import sloj — završeno
+## ⚠️ Product Milestone 2 — implementacija završena, LIVE acceptance NIJE izvršen
+
+Ovo je najvažnija razlika koju svaki čitalac ovog dokumenta mora razumeti:
+
+- **Implementacija (kod + testovi) product Milestone 2 iz `PROJECT.md` §20
+  je kompletna** kroz Checkpoint E–H2: live multi-page ranking discovery,
+  row-level failure persistence, trader profile lookup sa identity-match
+  pravilom, candidate/watched/ignored triage, discovery retry, i read-only
+  Filament UI (`TraderResource`, `ImportRunResource`, `DiscoverTraders`
+  stranica).
+- **`PROJECT.md` §20 Milestone 2 kriterijum "najmanje 20 kandidata
+  importovano" NIJE ispunjen live dokazom:** nijedan LIVE Milestone-2
+  ranking discovery/import poziv protiv odobrene baze nije izvršen u
+  Checkpoint E–I implementacionom stream-u. Ovo je odvojeno od ranijih,
+  već završenih, odobrenih one-off live proba iz Milestone 1 (capability
+  spike) i target-copy-coverage stream-a (vidi istorijske sekcije ispod) —
+  te probe su verifikovale API konektivnost/kapabilnost i jednu coverage
+  kalkulaciju, ne Milestone 2 discovery/import, i ne dokazuju ovaj
+  kriterijum. Sve numeričke tvrdnje u ovom dokumentu i u `PROJECT.md` §9 o
+  broju importovanih redova u E–I stream-u odnose se ISKLJUČIVO na
+  sintetičke fixture/test podatke u izolovanoj SQLite bazi, nikad na
+  stvarne eToro kandidate.
+- Druga dva Milestone 2 kriterijuma iz §20 — "repeated import creates no
+  duplicates" i "failed rows are visible" — su VEĆ deterministički
+  dokazana OFFLINE, namenskim Pest testovima (idempotent-rerun,
+  row-level-failure/Partial-status, `ImportRunResource` UI vidljivost —
+  vidi "Reproducibilan offline acceptance" niže za tačne komande/brojeve)
+  i ne zahtevaju live poziv. Jedino "najmanje 20 kandidata" je suštinski
+  live-only kriterijum.
+- Milestone 2 se ne sme opisati kao "gotov" (done) dok se ne izvrši:
+  1. **Odobren live, read-only discovery poziv** (`php artisan
+     etoro:discover-traders {period} ...` ili Filament "Run discovery"),
+     eksplicitno pokrenut od strane vlasnika projekta, protiv eksplicitno
+     odobrene development ILI izolovane acceptance baze koju vlasnik
+     odobri za taj poziv (postojeća development baza ili posebna
+     izolovana baza — izbor vlasnika, nikad pretpostavka ove
+     implementacione/dokumentacione grane);
+  2. **Najmanje 20 stvarnih kandidata** vidljivih u toj odobrenoj bazi
+     nakon tog poziva;
+  3. **Ponovljen isti discovery poziv protiv iste baze, bez duplikata** —
+     ovo NIJE zato što je §20 "repeated import creates no duplicates"
+     kriterijum sam po sebi live-only (već je zadovoljen offline
+     idempotent-rerun testovima, vidi tačku iznad) — ovo je dodatna
+     operativna potvrda koju ovaj projekat bira da zahteva pre nego što
+     tretira stvarne kandidat podatke kao prihvaćene;
+  4. Tek nakon 1–3, otvaranje i pregled finalnog PR-a
+     `codex/milestone-2-discovery-and-ui` → `main`, i merge.
+- Ako live odgovor prirodno proizvede Partial/row-level failure ishod, to
+  je korisno dodatno posmatrati u `/admin/import-runs` — ali NIJE cilj
+  koji treba namerno izazvati niti uslov koji acceptance zahteva (taj deo
+  kriterijuma je već offline dokazan, vidi tačku iznad).
+- Do tada, `PROJECT.md` §20 Milestone 2 ostaje formalno NEZAVRŠEN, uprkos
+  tome što je implementacija u kodu i testovima kompletna.
+
+## Checkpoint E–H2 sloj — završeno
+
+- [x] Live, multi-page ranking discovery (Checkpoint E, `8a3204b`) —
+      `App\Application\Imports\DiscoverEtoroTraders`,
+      `DiscoverEtoroTradersRequest`/`Result`/`StopReason`, `php artisan
+      etoro:discover-traders {period}` CLI; fiksan `PAGE_SIZE=20`, 2s
+      pacing samo između stranica, agregatni `rankings_discovery`
+      `ImportRun` kreiran pre prvog HTTP poziva — D-027
+- [x] Row-level failure persistence (Checkpoint F, `b1b06d6`) —
+      `import_run_failures` tabela, `ImportRunFailure`/
+      `ImportRunFailureReason`, `ImportRun::failures()`/`childFailures()` —
+      D-028
+- [x] Trader profile lookup (Checkpoint G, `7efd3b1`) —
+      `App\Application\Traders\{TraderUsername,
+      FindStoredTraderByUsername, LookupEtoroTraderProfile}`, šest novih
+      `traders.profile_*` kolona; nikad ne kreira `Trader` iz profile
+      odgovora, nikad ne poredi `profile_gcid` sa `external_cid` — D-029
+- [x] Trader status triage i discovery retry (Checkpoint H1, `c0c4d06`) —
+      `App\Application\Traders\ChangeTraderStatus`,
+      `import_runs.retry_of_import_run_id`, sanitizovana
+      retry-eligibility metadata,
+      `App\Application\Imports\RetryEtoroTraderDiscovery` — D-030
+- [x] Read-only Filament UI (Checkpoint H2, `51b32e1`) —
+      `App\Application\Traders\EvaluateTraderProfileFreshness`,
+      `TraderResource` (`/admin/traders`), `ImportRunResource`
+      (`/admin/import-runs`, četiri relation manager-a), `DiscoverTraders`
+      stranica (`/admin/discover-traders`) — samo List+View, bez
+      Create/Edit/Delete; renderovanje nikad ne pravi HTTP poziv — D-031
+- [x] D-027–D-031 dodate u `docs/DECISIONS.md`
+
+## Checkpoint E–H2 sloj — finalna verifikacija (na tip-u `51b32e1`)
+
+- `php artisan test --compact`: **1380 total, 1376 passed, 4712
+  assertions**, 0 failures, 4 skipped (isti izolovani MySQL collation
+  testovi kao u prethodnom stream-u), 1 upozorenje (isto poznato,
+  nepovezano upozorenje dokumentovano još od Milestone 1)
+- `composer types:check` (PHPStan): 0 errors
+- `composer lint:check` (Pint): prošao
+- Development baza `trade_ledger` nije korišćena u Checkpoint E–I
+  stream-u; nijedan LIVE Milestone-2 ranking discovery/import poziv
+  izvršen protiv odobrene baze u celom E–I stream-u (ranije, odvojene,
+  odobrene one-off live probe iz Milestone 1/target-coverage stream-ova
+  ostaju istorijska činjenica — vidi upozorenje na vrhu ovog dokumenta)
+
+## Šta NIJE (live) dokazano kroz Checkpoint E–H2 ili Checkpoint I
+
+Implementacija i offline testovi POKRIVAJU sledeće ponašanje
+("repeated import creates no duplicates" i "failed rows are visible" iz
+`PROJECT.md` §20 su već deterministički dokazani OFFLINE — vidi upozorenje
+na vrhu ovog dokumenta). Ono što NIJE dokazano protiv stvarnog eToro API-ja
+ili odobrene baze:
+
+- najmanje 20 stvarno importovanih kandidata (vidi upozorenje na vrhu ovog
+  dokumenta) — offline dokaz koristi isključivo 3 sintetička fixture reda
+  i sintetičke `Http::fake()` payload-e u testovima;
+- scheduled/queued collection i dalje nije implementirana (van Milestone
+  2 §20 opsega — vidi `PROJECT.md` §9);
+- otvaranje i merge finalnog PR-a `codex/milestone-2-discovery-and-ui` →
+  `main` — namerno odloženo do live acceptance-a (vidi upozorenje na vrhu
+  ovog dokumenta).
+
+## Checkpoint E–H2 sloj — sledeći korak
+
+1. Vlasnik projekta odobrava i pokreće live, read-only discovery poziv
+   protiv eksplicitno odobrene development ILI izolovane acceptance baze.
+2. Potvrditi najmanje 20 stvarnih kandidata i ponovljen isti discovery bez
+   duplikata protiv iste baze (ova druga potvrda je dodatna operativna
+   provera koju projekat bira, ne live-only §20 zahtev — "no duplicates"
+   i "failed rows are visible" su već offline dokazani, vidi upozorenje na
+   vrhu ovog dokumenta; ako live odgovor prirodno proizvede Partial/failure
+   ishod, pregledati ga u `/admin/import-runs`, ali ga ne izazivati
+   namerno).
+3. Otvoriti i pregledati PR `codex/milestone-2-discovery-and-ui` → `main`.
+4. Nakon merge-a i live acceptance-a, product Milestone 2 (`PROJECT.md`
+   §20) se može formalno označiti kompletnim, i sledeći milestone
+   (Milestone 3 — performance analytics) razmotriti u skladu sa stvarnim
+   prioritetom vlasnika.
+
+---
+
+## Istorija: Trader-ranking import sloj (Checkpoint A–D, `feature/trader-ranking-import`)
+
+**Status:** završeno, mergovano u `main` kao PR #5 ("feat: add trader
+ranking import foundation", commit `cf5ac83`) — vidi sekciju "Merge u
+`main`" u `docs/WORKLOG.md` 2026-08-21.
+**Poslednje ažuriranje ove istorijske sekcije:** 2026-08-21
 
 - [x] Persistence foundation (Checkpoint A, `f22bde8`) — `traders`/
       `import_runs` migracije, `Trader`/`ImportRun` Eloquent modeli,
@@ -49,7 +193,7 @@ otvoren; grana NIJE mergovana.
       transaction contract), D-026 (offline fixture source + CLI/
       environment/exit-code contract) dodate u `docs/DECISIONS.md`
 
-## Trader-ranking import sloj — finalna verifikacija
+### Trader-ranking import sloj — finalna verifikacija (istorijski, na tip-u `d739e4c`)
 
 - `php artisan test`: **912 passed / 3017 assertions**, 0 failures, 4
   skipped (izolovani MySQL collation testovi — nisu izvršeni bez
@@ -59,32 +203,35 @@ otvoren; grana NIJE mergovana.
 - Development baza `trade_ledger` nije korišćena; nijedan live eToro poziv
   izvršen u ovom stream-u
 
-## Šta NIJE implementirano u ovom stream-u
+### Šta NIJE implementirano u ovom stream-u (istorijski — sve stavke niže su otad rešene u Checkpoint E–H2, vidi sekciju na vrhu ovog dokumenta)
 
-- trader search;
-- Filament `TraderResource` ili bilo koji drugi Filament/Livewire UI;
-- UI workflow za promenu `candidate`/`watched`/`ignored` statusa (kolona
-  postoji i čuva se kroz re-import, ali nema application/UI mutacione
-  putanje);
-- live ili multi-page discovery/import (importer obrađuje jednu već
-  mapiranu `RankingPage` po pozivu; CLI uvek čita isti fiksni 3-redni
-  fixture, nikad live paginiran odgovor);
-- import history UI;
-- najmanje 20 stvarno importovanih kandidata (importovana su isključivo 3
-  sintetička fixture reda, samo u local/testing bazu — **product
-  Milestone 2 iz PROJECT.md §20 NIJE kompletan**, vidi PROJECT.md §9 za
-  potpunu listu);
-- scheduled/queued collection;
-- generički `EtoroClient`-based live rankings import/orchestration.
+- ~~trader search~~ — implementirano, Checkpoint G (`7efd3b1`), D-029.
+- ~~Filament `TraderResource` ili bilo koji drugi Filament/Livewire UI~~ —
+  implementirano, Checkpoint H2 (`51b32e1`), D-031.
+- ~~UI workflow za promenu `candidate`/`watched`/`ignored` statusa~~ —
+  implementirano, Checkpoint H1/H2 (`c0c4d06`/`51b32e1`), D-030/D-031.
+- ~~live ili multi-page discovery/import~~ — implementirano, Checkpoint E
+  (`8a3204b`), D-027.
+- ~~import history UI~~ — implementirano, Checkpoint H2 (`51b32e1`),
+  `ImportRunResource`, D-031.
+- najmanje 20 stvarno importovanih kandidata — i dalje NIJE dokazano (ne
+  rešeno implementacijom same po sebi; zahteva live acceptance korak, vidi
+  upozorenje na vrhu ovog dokumenta).
+- scheduled/queued collection — i dalje nije implementirano (van
+  Milestone 2 §20 opsega, vidi `PROJECT.md` §9).
+- ~~generički `EtoroClient`-based live rankings import/orchestration~~ —
+  implementirano, Checkpoint E (`8a3204b`).
 
-## Trader-ranking import sloj — sledeći korak
+### Trader-ranking import sloj — sledeći korak (istorijski)
 
-1. Otvoriti i pregledati PR `feature/trader-ranking-import` → `main`
-   (grana je push-ovana na `origin/feature/trader-ranking-import`, commit
-   `d739e4c`; PR još nije otvoren).
-2. Nakon merge-a razmotriti sledeći korak (npr. trader search, Filament
+1. ~~Otvoriti i pregledati PR `feature/trader-ranking-import` → `main`.~~
+   Završeno — mergovano kao PR #5 (commit `cf5ac83`), vidi
+   `docs/WORKLOG.md` 2026-08-21 "Merge u `main`".
+2. ~~Nakon merge-a razmotriti sledeći korak (npr. trader search, Filament
    `TraderResource`, ili live/multi-page discovery) u skladu sa stvarnim
-   prioritetom iz `PROJECT.md`.
+   prioritetom iz `PROJECT.md`.~~ Rešeno — sve navedeno implementirano na
+   grani `codex/milestone-2-discovery-and-ui` (Checkpoint E–H2, vidi
+   sekciju na vrhu ovog dokumenta). Live acceptance i dalje čeka.
 
 ---
 

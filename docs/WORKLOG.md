@@ -900,3 +900,256 @@ odobren pre commit-a `d739e4c`.
 Pull request prema `main` **NIJE otvoren**; grana **NIJE mergovana**.
 
 ---
+
+## 2026-08-21 — Merge u `main`, nova grana `codex/milestone-2-discovery-and-ui`
+
+Vlasnik projekta je odobrio merge `feature/trader-ranking-import` → `main`.
+PR #5 ("feat: add trader ranking import foundation") mergovan; `main` tip
+postaje `cf5ac83` (`git merge-base --is-ancestor` potvrđeno). Nova grana
+`codex/milestone-2-discovery-and-ui` kreirana od `cf5ac83` za nastavak
+product Milestone 2 rada (trader search, Filament UI, live/multi-page
+discovery — vidi `PROJECT.md` §20 i `docs/REVIEW_STATUS.md`).
+
+## 2026-08-21 — Grana `codex/milestone-2-discovery-and-ui`: Checkpoint E–H2 implementacija
+
+Pet implementacionih commit-a, svaki commit-ovan tek nakon eksplicitnog
+odobrenja finalnog v-broja review artefakta od strane vlasnika projekta
+(v1 nalazi → korekcije primenjene i testirane → v2/finalni pregled
+odobren), zatim push-ovan na `origin/codex/milestone-2-discovery-and-ui`
+u skladu sa standing autorizacijom vlasnika projekta za push na ovoj
+grani (bez posebnog pitanja pre svakog pojedinačnog push-a). Nijedan live
+eToro poziv nije izvršen tokom implementacije/testiranja bilo kog
+Checkpoint-a u E–H2 stream-u — svi testovi rade offline kroz
+`Http::fake()` + `Http::preventStrayRequests()`, protiv izolovane SQLite
+baze (`phpunit.xml` `DB_CONNECTION=sqlite`, `DB_DATABASE=:memory:`);
+razvojna baza `trade_ledger` nikad korišćena u ovom stream-u.
+
+1. **`8a3204b`** feat: add live trader discovery (Checkpoint E) —
+   `App\Application\Imports\DiscoverEtoroTraders`,
+   `DiscoverEtoroTradersRequest`/`Result`/`StopReason`,
+   `php artisan etoro:discover-traders {period}` CLI. Live, read-only,
+   multi-page ranking discovery: fiksan `PAGE_SIZE=20`, 2s pacing samo
+   između stranica, agregatni `rankings_discovery` `ImportRun` kreiran pre
+   prvog HTTP poziva, `parent_import_run_id` lineage ka per-page `rankings`
+   child redovima. Vidi `docs/DECISIONS.md` D-027.
+2. **`b1b06d6`** feat: persist ranking import failures (Checkpoint F) —
+   `import_run_failures` tabela, `ImportRunFailure`/`ImportRunFailureReason`,
+   `ImportRun::failures()`/`childFailures()`. Row-level vidljivost
+   kontrolisanih identity konflikata, po stranici i agregatno. Vidi
+   `docs/DECISIONS.md` D-028.
+3. **`7efd3b1`** feat: add trader profile search (Checkpoint G) —
+   `TraderUsername`, `FindStoredTraderByUsername`,
+   `App\Application\Traders\LookupEtoroTraderProfile`, šest novih
+   `traders.profile_*` kolona. Lokalna exact pretraga + live, read-only
+   eToro profile lookup koji obogaćuje SAMO postojeći `Trader` red iste
+   username identity; nikad ne kreira `Trader` iz profile odgovora; nikad
+   ne poredi `profile_gcid` sa `external_cid`. Vidi `docs/DECISIONS.md`
+   D-029.
+4. **`c0c4d06`** feat: add trader status and discovery retry (Checkpoint
+   H1) — `App\Application\Traders\ChangeTraderStatus`,
+   `import_runs.retry_of_import_run_id`, sanitizovana retry-eligibility
+   metadata na agregatnim discovery redovima,
+   `App\Application\Imports\RetryEtoroTraderDiscovery`
+   (`canRetry()`/`handle()` dele jedan eligibility gate). Vidi
+   `docs/DECISIONS.md` D-030.
+5. **`51b32e1`** feat: add Filament discovery UI (Checkpoint H2) —
+   `App\Application\Traders\EvaluateTraderProfileFreshness`/
+   `ProfileFreshness`, `App\Filament\Resources\Traders\TraderResource`
+   (`/admin/traders`), `App\Filament\Resources\ImportRuns\ImportRunResource`
+   (`/admin/import-runs`, četiri read-only relation manager-a),
+   `App\Filament\Pages\DiscoverTraders` (`/admin/discover-traders`).
+   Read-only List+View resursi, bez Create/Edit/Delete; sve poslovne
+   odluke (freshness, retry eligibility) idu isključivo kroz application
+   servise. Vidi `docs/DECISIONS.md` D-031.
+
+### Arhitektonske/security granice (E–H2, potvrđeno kodom i testovima)
+
+- `App\Filament\*` klase nikad direktno ne pozivaju `EtoroClient`/`Http`/
+  `DB`/`config`/`env`/`Storage`/`Log`/`Queue` — arhitektonski testovi to
+  dokazuju strukturno za svaku novu klasu.
+- Renderovanje `/admin/discover-traders` nikad ne pravi HTTP poziv — samo
+  eksplicitna submisija akcijskih formi ("Run discovery"/"Lookup profile")
+  poziva `DiscoverEtoroTraders`/`LookupEtoroTraderProfile`.
+- Retry eligibility i profile freshness se računaju TAČNO jednom, u
+  `App\Application` sloju — nikad duplirani u Filament sloju.
+- Sanitizacija ostaje dosledna kroz sve slojeve: nijedan request ID,
+  transport detalj, URL, payload, kredencijal, header ili sirov exception
+  tekst se nikad ne pojavljuje u `error_summary`, notifikacijama, CLI
+  izlazu ili Filament UI-ju — potvrđeno namenskim testovima u svakom
+  Checkpoint-u (uključujući sentinel-based leak testove protiv proizvoljne
+  `metadata` sadržine u H2).
+
+### Finalna nezavisno potvrđena verifikacija (na tip-u `51b32e1`, pre Checkpoint I izmena dokumentacije)
+
+```bash
+php artisan test --compact   # 1380 total, 1376 passed, 0 failed, 4 skipped, 4712 assertions, 1 upozorenje
+composer types:check          # 0 errors
+composer lint:check           # passed
+```
+
+Četiri skipped testa ostaju isti izolovani MySQL collation testovi kao u
+prethodnim Checkpoint-ima (nisu izvršeni bez `MYSQL_COLLATION_TEST_*`
+konekcije). Jedno (1) upozorenje je isto poznato, nepovezano,
+preduslovno/okruženje-nivo upozorenje bez detalja dokumentovano još od
+Milestone 1 verifikacije — ne utiče na prolaznost.
+
+### Review artefakti
+
+`checkpoint-e-live-ranking-discovery-v{1,2}.{patch,zip}`,
+`checkpoint-f-row-failure-audit-v{1,2}.{patch,zip}`,
+`checkpoint-g-trader-profile-search-v1.{patch,zip}`,
+`checkpoint-h1-status-retry-v1.{patch,zip}`,
+`checkpoint-h2-filament-ui-v1.{patch,zip}` su git-ignorisani (`.gitignore`
+`/*.patch`, `/*.zip`) i nikad nisu ušli u git istoriju — služili su
+isključivo za review pre svakog commit-a. Svaki finalni v-broj je
+pregledan i eksplicitno odobren pre commit-a.
+
+### Remote stanje
+
+`origin/codex/milestone-2-discovery-and-ui` potvrđen na `51b32e1`
+(`git rev-parse HEAD` == `git rev-parse
+origin/codex/milestone-2-discovery-and-ui` nakon svakog push-a). Pull
+request prema `main` **NIJE otvoren**; grana **NIJE mergovana**.
+
+---
+
+## 2026-08-22 — Checkpoint I: dokumentacija i offline acceptance (bez live poziva)
+
+Baza: `51b32e1` (Checkpoint H2 tip) na `codex/milestone-2-discovery-and-ui`.
+**Documentation-only + offline acceptance closeout** — ne dodaje niti menja
+produkcijski kod. Menja isključivo `README.md`, `PROJECT.md` (§header,
+§9), `docs/DECISIONS.md` (D-027–D-031), `docs/REVIEW_STATUS.md`, i ovaj
+unos u `docs/WORKLOG.md`.
+
+### Šta je urađeno
+
+1. Pročitani u celosti `README.md`, `PROJECT.md`, `docs/WORKLOG.md`,
+   `docs/DECISIONS.md`, `docs/REVIEW_STATUS.md`, i commit-i `8a3204b`
+   (E), `b1b06d6` (F), `7efd3b1` (G), `c0c4d06` (H1), `51b32e1` (H2).
+2. Uklonjene zastarele tvrdnje: `README.md` "Milestone 0 (scaffold)
+   complete... does not call the eToro API yet"; `docs/REVIEW_STATUS.md`
+   je opisivao `feature/trader-ranking-import` (Checkpoint A–D) kao
+   trenutni stream, bez ijednog pomena Checkpoint E–H2.
+3. `docs/DECISIONS.md` D-027–D-031 dodate — formalizuju već postojeći,
+   testovima potvrđen ugovor iz Checkpoint E–H2 (bez izmene koda; vidi
+   detaljne bullet-e u svakoj odluci).
+4. `docs/REVIEW_STATUS.md` restrukturiran: novi vrh dokumenta opisuje
+   `codex/milestone-2-discovery-and-ui` kao trenutni stream sa eksplicitnim
+   upozorenjem da je implementacija product Milestone 2 kompletna ALI live
+   acceptance NIJE izvršen; stara "Trader-ranking import sloj" sekcija
+   premeštena u `## Istorija:` sa razrešenim (strikethrough) stavkama.
+5. `PROJECT.md` §9 prošireno da opisuje Checkpoint E–H2 sa istim
+   eksplicitnim razdvajanjem implementacija-vs-live-acceptance; `Last
+   verified` ažuriran; dodat pointer na `docs/REVIEW_STATUS.md` kao
+   operativni izvor istine za implementation status.
+6. `README.md` ažuriran: trenutni status, tačan opis svih površina koje
+   mogu pokrenuti live eToro poziv (Discover stranica, Trader row "Lookup
+   profile", eligible ImportRun "Retry", `etoro:discover-traders` CLI —
+   nijedan render sam po sebi ne šalje HTTP), CLI/UI putanje
+   (`/admin/traders`, `/admin/import-runs`, `/admin/discover-traders`,
+   `etoro:discover-traders`, `etoro:import-ranking-page`), i tačna
+   napomena da podrazumevani/local/CI test suite radi protiv izolovane
+   SQLite `:memory:` baze, dok su četiri MySQL collation testa uslovljena
+   posebnom `MYSQL_COLLATION_TEST_*` konekcijom.
+
+### Reproducibilan offline acceptance (isključivo postojeći fixture/test putevi, bez live poziva, bez `trade_ledger`)
+
+Sve komande izvršene protiv izolovane SQLite baze koju `phpunit.xml`
+prisilno postavlja (`DB_CONNECTION=sqlite`, `DB_DATABASE=:memory:`) —
+razvojna baza `trade_ledger` nikad otvorena; `.env` nikad pročitan od
+strane implementatora.
+
+```bash
+# A) Isti fixture import ponovljen bez dupliranja trader-a
+php artisan test --compact tests/Feature/Console/EtoroImportRankingPageCommandTest.php --filter="idempotent"
+# => 1 passed / 5 assertions ("is idempotent across repeated runs: still 3 traders, exit 0 both times")
+
+# B) Row-level failure persistence + Partial status
+php artisan test --compact tests/Feature/Models/ImportRunFailureTest.php tests/Feature/Application/Imports/ImportRankingPageTest.php
+# => 43 passed / 167 assertions
+
+# B2) UI failure vidljivost (ImportRunResource + relation manageri, Partial/Failed distinct)
+php artisan test --compact tests/Feature/Filament/Resources/ImportRunResourceTest.php
+# => 26 passed / 75 assertions
+
+# C) Trader status tranzicije
+php artisan test --compact tests/Feature/Application/Traders/ChangeTraderStatusTest.php tests/Feature/Application/Traders/ChangeTraderStatusArchitectureTest.php
+# => 17 passed / 60 assertions
+
+# D) Profile search / identity mismatch / no-create
+php artisan test --compact tests/Feature/Application/Traders/LookupEtoroTraderProfileTest.php tests/Feature/Application/Traders/FindStoredTraderByUsernameTest.php tests/Feature/Application/Traders/TraderUsernameTest.php
+# => 30 passed / 103 assertions
+
+# E) Retry eligibility / lineage
+php artisan test --compact tests/Feature/Application/Imports/RetryEtoroTraderDiscoveryTest.php tests/Feature/Application/Imports/RetryEtoroTraderDiscoveryArchitectureTest.php
+# => 148 passed / 411 assertions
+
+# F) Filament render nikad ne šalje HTTP
+php artisan test --compact tests/Feature/Filament/
+# => 113 passed / 562 assertions
+
+# G) Pun discovery/aggregate pipeline
+php artisan test --compact tests/Feature/Application/Imports/DiscoverEtoroTradersTest.php tests/Feature/Application/Imports/DiscoverEtoroTradersRequestTest.php tests/Feature/Application/Imports/DiscoverEtoroTradersArchitectureTest.php
+# => 66 passed / 248 assertions
+```
+
+Nijedan nov fixture nije kreiran; nijedna temp SQLite baza nije korišćena —
+postojeći `phpunit.xml`-om izolovani `:memory:` je bio dovoljan za sve
+gornje dokaze, pošto svaki od njih već postoji kao namenski Pest test iz
+Checkpoint E–H2.
+
+### Finalna nezavisno potvrđena verifikacija (nepromenjena od H2, ponovo pokrenuta radi potvrde)
+
+```bash
+php artisan test --compact   # 1380 total, 1376 passed, 0 failed, 4 skipped, 4712 assertions, 1 upozorenje
+composer types:check          # 0 errors
+composer lint:check           # passed
+```
+
+Brojevi su identični Checkpoint H2 finalnoj verifikaciji — dokumentaciona
+izmena nije dotakla nijedan test/produkcijski fajl, pa je ponovno-pokrenuti
+rezultat očekivano nepromenjen.
+
+### Eksplicitna bezbednosna potvrda
+
+- **Bez live eToro HTTP poziva** — nijedna komanda izvršena u ovom
+  Checkpoint-u nije kontaktirala `public-api.etoro.com`; svi testovi idu
+  kroz `Http::fake()`/`Http::preventStrayRequests()`.
+- **Bez pristupa razvojnoj bazi `trade_ledger`** — sve komande gore rade
+  isključivo protiv `phpunit.xml`-om iznuđene izolovane SQLite `:memory:`
+  baze.
+- **`.env` nije čitan** — nijedan `Read`/`cat`/slično nije pozvan nad
+  `.env` tokom ovog Checkpoint-a; sve konfiguracione vrednosti pomenute u
+  dokumentaciji (npr. `ETORO_ENABLED`) referenciraju `.env.example`/
+  `config/etoro.php`, nikad stvarni lokalni `.env` sadržaj.
+- **Bez branch/index/commit/remote mutacija** — nijedan `git add`/
+  `commit`/`push`/`checkout -b`/promena postojeće grane ili remote-a nije
+  izvršen. Korišćene su read-only Git provere (`git diff`, `git status`).
+  Jedina Git metadata mutacija bio je jedan privremeni, izolovani, detached
+  review worktree (`git worktree add --detach` na putanji van repo-a, pod
+  `/private/tmp`), kreiran isključivo radi `git apply --check`/byte
+  verifikacije artefakta i odmah zatim uklonjen (`git worktree remove
+  --force`) — ne dira `codex/milestone-2-discovery-and-ui` niti bilo koju
+  drugu postojeću granu, indeks ili remote.
+- Istraživanje/unakrsna provera dokumentacionih tvrdnji urađeno je
+  isključivo direktnim čitanjem postojećih fajlova/commit-a od strane
+  glavnog implementatora — nijedan read-only research agent nije korišćen
+  za ovaj Checkpoint (sesija je već imala kompletno, iz prve ruke znanje o
+  svakom Checkpoint-u E–H2 iz istog razgovora u kome su implementirani).
+
+### Review artefakti
+
+`checkpoint-i-docs-offline-acceptance-v1.{patch,zip}` su git-ignorisani
+(`.gitignore` `/*.patch`, `/*.zip`) i nikad nisu ušli u git istoriju —
+služe isključivo za review pre commit-a. Manifest sadrži tačno izmenjene
+dokumentacione fajlove (`README.md`, `PROJECT.md`, `docs/DECISIONS.md`,
+`docs/REVIEW_STATUS.md`, `docs/WORKLOG.md`) — bez ijednog produkcijskog,
+test ili config fajla.
+
+### Remote stanje
+
+Bez izmene — `origin/codex/milestone-2-discovery-and-ui` ostaje na
+`51b32e1` do commit/push odobrenja za Checkpoint I. Pull request prema
+`main` **NIJE otvoren**; grana **NIJE mergovana**.
+
+---
