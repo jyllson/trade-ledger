@@ -1,9 +1,16 @@
 # TradeLedger — PROJECT.md
 
-**Status:** Draft v0.1  
-**Last verified:** 2026-07-30  
-**Primary owner:** Slavko  
+**Status:** Draft v0.1<br>
+**Last verified:** 2026-08-24<br>
+**Primary owner:** Slavko<br>
 **Working repository name:** `trade-ledger`
+
+This document is the product spec and does not track day-to-day
+implementation state. For current implementation status, what is
+actually built vs. still pending, and exact verification commands/results,
+see `docs/REVIEW_STATUS.md` (operational snapshot) and `docs/WORKLOG.md`
+(chronological history). §9 below is kept updated as a structural summary
+only.
 
 ---
 
@@ -431,7 +438,7 @@ app/
 - Store timestamps in UTC.
 - Display timestamps in `Europe/Malta`.
 
-### Current implementation status (updated 2026-08-21)
+### Current implementation status (updated 2026-08-24)
 
 The tree above is the target shape and does not yet exist in full. What is
 actually implemented today, in addition to the eToro domain-model layer
@@ -517,18 +524,48 @@ CLI never performs a network request. Dependency direction remains layered:
 Console → Application → Etoro/persistence, mirroring the existing
 Console → Application → Etoro/Analytics direction documented above.
 
-Product Milestone 2 (§20) is still not complete. This stream provides only
-a persistence foundation and a manual, offline verification tool — it does
-not add trader search, a Filament `TraderResource`, a UI
-candidate/watched/ignored workflow (the `TraderStatus` column exists and is
-preserved across re-import, but has no application- or UI-level mutation
-path), live or multi-page discovery/import (the importer only ever
-processes one already-mapped `RankingPage` per call, and the CLI always
-reads the same fixed 3-row fixture, never a live paginated eToro response),
-an import-history UI, or acceptance evidence of at least 20 actually
-imported candidates. The three synthetic fixture rows imported by the
-manual CLI in local/testing are not real candidates and must not be
-represented as satisfying that Milestone 2 acceptance criterion.
+That `feature/trader-ranking-import` stream (Checkpoint A–D) was reviewed
+and merged into `main` as PR #5 (commit `cf5ac83`). A further
+implementation stream, branch `codex/milestone-2-discovery-and-ui`
+(branched from `cf5ac83`; Checkpoint E–I; see `docs/REVIEW_STATUS.md` and
+`docs/WORKLOG.md` for full detail), closed the remaining implementation
+gaps: live, multi-page ranking discovery
+(`App\Application\Imports\DiscoverEtoroTraders`, `php artisan
+etoro:discover-traders {period}`, `docs/DECISIONS.md` D-027); row-level
+failure persistence (`ImportRunFailure`, D-028); trader profile search and
+identity-matched enrichment (`App\Application\Traders\{TraderUsername,
+FindStoredTraderByUsername, LookupEtoroTraderProfile}`, D-029); a
+candidate/watched/ignored triage use case and a sanitized, fail-closed
+discovery retry use case (`ChangeTraderStatus`,
+`RetryEtoroTraderDiscovery`, D-030); and a read-only Filament UI
+(`TraderResource` at `/admin/traders`, `ImportRunResource` at
+`/admin/import-runs`, and the `DiscoverTraders` page at
+`/admin/discover-traders`, D-031).
+
+**Product Milestone 2 (§20) implementation is complete, and all three §20
+acceptance criteria are now satisfied** (Checkpoint J, 2026-08-24; see
+`docs/REVIEW_STATUS.md` and `docs/WORKLOG.md` for full detail) — two of the
+three are confirmed directly by live runs, the third remains proven
+deterministically offline. A project owner explicitly approved a live,
+read-only `etoro:discover-traders` call, which was executed twice against
+a temporary, isolated SQLite acceptance database created solely for this
+purpose — never the development `trade_ledger` database. The first run
+imported 40 distinct real candidates (well above the "at least 20" bar),
+satisfying the candidate-count criterion. The second, identical run
+against the same database left the trader count and distinct-identity
+counts unchanged, confirming "repeated import creates no duplicates" under
+a real live call, in addition to the offline idempotent-rerun tests that
+already proved this deterministically. "Failed rows are visible" remains
+proven deterministically OFFLINE by the same dedicated Pest coverage as
+before (row-level-failure/Partial-status tests and `ImportRunResource` UI
+visibility tests) — the live acceptance run did not itself produce a
+failed row, and none was deliberately induced, consistent with the
+acceptance requirement.
+
+Milestone 2 is therefore functionally accepted. The only remaining step is
+integration: opening, reviewing, and merging the final pull request for
+`codex/milestone-2-discovery-and-ui` → `main`. See `docs/REVIEW_STATUS.md`
+for the exact remaining steps and the current PR/merge status.
 
 The target-coverage stream described above completes, via a one-off CLI
 call against the live API, only the calculation portion of one Milestone 4

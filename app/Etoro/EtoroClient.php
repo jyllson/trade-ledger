@@ -140,6 +140,7 @@ class EtoroClient
                     $response->status(),
                     $requestId,
                     'unexpected redirect response (redirects are disabled for credentialed requests)',
+                    attemptCount: $attempt,
                 );
             }
 
@@ -165,6 +166,7 @@ class EtoroClient
                 $response->status(),
                 $requestId,
                 'response body did not decode to a JSON object/array',
+                attemptCount: $attempt,
             );
         }
 

@@ -3,6 +3,7 @@
 use App\Models\ImportRun;
 use App\Models\ImportRunStatus;
 use Carbon\CarbonInterface;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -11,6 +12,8 @@ it('creates an import_runs table with the expected columns', function (): void {
 
     expect(Schema::hasColumns('import_runs', [
         'id',
+        'parent_import_run_id',
+        'retry_of_import_run_id',
         'source',
         'type',
         'status',
@@ -24,6 +27,66 @@ it('creates an import_runs table with the expected columns', function (): void {
         'created_at',
         'updated_at',
     ]))->toBeTrue();
+});
+
+// --- Checkpoint E: parent_import_run_id self-relation -----------------------
+
+it('allows a null parent_import_run_id', function (): void {
+    $importRun = ImportRun::factory()->create(['parent_import_run_id' => null]);
+
+    $fromDatabase = ImportRun::query()->findOrFail($importRun->id);
+
+    expect($fromDatabase->parent_import_run_id)->toBeNull();
+});
+
+it('casts parent_import_run_id to an integer', function (): void {
+    $parent = ImportRun::factory()->create();
+    $child = ImportRun::factory()->create(['parent_import_run_id' => $parent->id]);
+
+    $fromDatabase = ImportRun::query()->findOrFail($child->id);
+
+    expect($fromDatabase->parent_import_run_id)->toBe($parent->id)->toBeInt();
+});
+
+it('exposes explicit parentRun and childRuns relations', function (): void {
+    $parent = ImportRun::factory()->create(['type' => 'rankings_discovery']);
+    $childA = ImportRun::factory()->create(['parent_import_run_id' => $parent->id, 'type' => 'rankings']);
+    $childB = ImportRun::factory()->create(['parent_import_run_id' => $parent->id, 'type' => 'rankings']);
+    ImportRun::factory()->create(['parent_import_run_id' => null]);
+
+    expect($childA->parentRun)->not->toBeNull()
+        ->and($childA->parentRun->id)->toBe($parent->id);
+
+    $children = $parent->childRuns()->pluck('id')->sort()->values();
+
+    expect($children->all())->toBe(collect([$childA->id, $childB->id])->sort()->values()->all());
+});
+
+it('nulls parent_import_run_id on children when the parent run is deleted', function (): void {
+    $parent = ImportRun::factory()->create(['type' => 'rankings_discovery']);
+    $child = ImportRun::factory()->create(['parent_import_run_id' => $parent->id, 'type' => 'rankings']);
+
+    $parent->delete();
+
+    expect($child->refresh()->parent_import_run_id)->toBeNull();
+});
+
+it('indexes the type column', function (): void {
+    $indexedColumns = collect(Schema::getIndexes('import_runs'))
+        ->flatMap(fn (array $index): array => $index['columns']);
+
+    expect($indexedColumns)->toContain('type');
+});
+
+it('enforces a foreign key constraint pointing back at import_runs.id', function (): void {
+    expect(fn () => DB::table('import_runs')->insert([
+        'parent_import_run_id' => 999999,
+        'source' => 'etoro',
+        'type' => 'rankings',
+        'started_at' => now(),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]))->toThrow(QueryException::class);
 });
 
 it('defaults a newly inserted import run status to pending', function (): void {
@@ -87,6 +150,66 @@ it('allows a null finished_at value', function (): void {
     $fromDatabase = ImportRun::query()->findOrFail($importRun->id);
 
     expect($fromDatabase->finished_at)->toBeNull();
+});
+
+// --- Checkpoint H1: retry_of_import_run_id self-relation -------------------
+
+it('allows a null retry_of_import_run_id', function (): void {
+    $importRun = ImportRun::factory()->create(['retry_of_import_run_id' => null]);
+
+    $fromDatabase = ImportRun::query()->findOrFail($importRun->id);
+
+    expect($fromDatabase->retry_of_import_run_id)->toBeNull();
+});
+
+it('casts retry_of_import_run_id to an integer', function (): void {
+    $original = ImportRun::factory()->create(['type' => 'rankings_discovery']);
+    $retry = ImportRun::factory()->create(['type' => 'rankings_discovery', 'retry_of_import_run_id' => $original->id]);
+
+    $fromDatabase = ImportRun::query()->findOrFail($retry->id);
+
+    expect($fromDatabase->retry_of_import_run_id)->toBe($original->id)->toBeInt();
+});
+
+it('exposes explicit retryOfRun and retryAttempts relations', function (): void {
+    $original = ImportRun::factory()->create(['type' => 'rankings_discovery']);
+    $retryA = ImportRun::factory()->create(['type' => 'rankings_discovery', 'retry_of_import_run_id' => $original->id]);
+    $retryB = ImportRun::factory()->create(['type' => 'rankings_discovery', 'retry_of_import_run_id' => $original->id]);
+    ImportRun::factory()->create(['type' => 'rankings_discovery', 'retry_of_import_run_id' => null]);
+
+    expect($retryA->retryOfRun)->not->toBeNull()
+        ->and($retryA->retryOfRun->id)->toBe($original->id);
+
+    $attempts = $original->retryAttempts()->pluck('id')->sort()->values();
+
+    expect($attempts->all())->toBe(collect([$retryA->id, $retryB->id])->sort()->values()->all());
+});
+
+it('nulls retry_of_import_run_id when the retried run is deleted', function (): void {
+    $original = ImportRun::factory()->create(['type' => 'rankings_discovery']);
+    $retry = ImportRun::factory()->create(['type' => 'rankings_discovery', 'retry_of_import_run_id' => $original->id]);
+
+    $original->delete();
+
+    expect($retry->refresh()->retry_of_import_run_id)->toBeNull();
+});
+
+it('links a retry chain immediately, never to the chain root', function (): void {
+    $runA = ImportRun::factory()->create(['type' => 'rankings_discovery']);
+    $runB = ImportRun::factory()->create(['type' => 'rankings_discovery', 'retry_of_import_run_id' => $runA->id]);
+    $runC = ImportRun::factory()->create(['type' => 'rankings_discovery', 'retry_of_import_run_id' => $runB->id]);
+
+    expect($runC->retry_of_import_run_id)->toBe($runB->id)
+        ->and($runC->retry_of_import_run_id)->not->toBe($runA->id);
+});
+
+it('keeps parent_import_run_id and retry_of_import_run_id independent of each other', function (): void {
+    $aggregate = ImportRun::factory()->create(['type' => 'rankings_discovery']);
+    $child = ImportRun::factory()->create(['type' => 'rankings', 'parent_import_run_id' => $aggregate->id]);
+    $retryOfAggregate = ImportRun::factory()->create(['type' => 'rankings_discovery', 'retry_of_import_run_id' => $aggregate->id]);
+
+    expect($child->retry_of_import_run_id)->toBeNull()
+        ->and($retryOfAggregate->parent_import_run_id)->toBeNull();
 });
 
 it('casts request, success, and failure counts to integers and defaults them to zero', function (): void {

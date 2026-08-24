@@ -8,19 +8,22 @@ use App\Etoro\Data\RankingEntry;
 use App\Etoro\Data\RankingPage;
 use App\Etoro\RankingQuery;
 use App\Models\ImportRun;
+use App\Models\ImportRunFailure;
+use App\Models\ImportRunFailureReason;
 use App\Models\ImportRunStatus;
 use App\Models\Trader;
 use App\Models\TraderStatus;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
 /**
  * Persists an already-mapped eToro RankingPage as an idempotent trader
  * upsert, recorded as a single ImportRun. Does not call EtoroClient, does
- * not map raw payloads, and does not read fixtures — the caller (a future
- * Checkpoint C CLI) is responsible for producing the RankingPage.
+ * not map raw payloads, and does not read fixtures — the caller is
+ * responsible for producing the RankingPage.
  */
 final class ImportRankingPage
 {
@@ -28,11 +31,33 @@ final class ImportRankingPage
 
     private const TYPE = 'rankings';
 
-    public function handle(RankingPage $rankingPage, RankingQuery $rankingQuery): ImportRun
+    /**
+     * The only ImportRun `type` a `parentImportRunId` may reference — the
+     * live multi-page discovery aggregate run (see
+     * App\Application\Imports\DiscoverEtoroTraders). A fixture-only or
+     * per-page `rankings` run can never pass this check, so it can never
+     * masquerade as a parent.
+     */
+    private const AGGREGATE_TYPE = 'rankings_discovery';
+
+    /**
+     * $parentImportRunId is optional and defaults to null so every existing
+     * caller (ImportRankingPageFromFixture, and any direct single-page
+     * caller) is completely unaffected. When provided, it must reference an
+     * existing etoro/rankings_discovery aggregate ImportRun with status
+     * Running — checked BEFORE any write, fail-closed, so a fixture-only or
+     * already-finished run can never be used as a parent.
+     */
+    public function handle(RankingPage $rankingPage, RankingQuery $rankingQuery, ?int $parentImportRunId = null): ImportRun
     {
+        if ($parentImportRunId !== null) {
+            $this->assertValidParent($parentImportRunId);
+        }
+
         $importedAt = now();
 
         $importRun = ImportRun::create([
+            'parent_import_run_id' => $parentImportRunId,
             'source' => self::SOURCE,
             'type' => self::TYPE,
             'status' => ImportRunStatus::Running,
@@ -51,7 +76,7 @@ final class ImportRankingPage
             // write for this page must roll back too, not just persist
             // half-done.
             DB::transaction(function () use ($rankingPage, $importedAt, $importRun): void {
-                [$successCount, $failureCount] = $this->processEntries($rankingPage->entries, $importedAt);
+                [$successCount, $failureCount] = $this->processEntries($rankingPage->entries, $importedAt, $importRun->id);
 
                 $importRun->forceFill([
                     'status' => $this->determineStatus($successCount, $failureCount),
@@ -81,6 +106,28 @@ final class ImportRankingPage
     }
 
     /**
+     * Fail-closed guard: a parent must be a real, currently-Running
+     * etoro/rankings_discovery aggregate ImportRun — never a fixture-only
+     * run, a per-page `rankings` run, a finished run, or a nonexistent id.
+     * Runs before any write for this page.
+     */
+    private function assertValidParent(int $parentImportRunId): void
+    {
+        $parent = ImportRun::query()->find($parentImportRunId);
+
+        if (
+            $parent === null
+            || $parent->source !== self::SOURCE
+            || $parent->type !== self::AGGREGATE_TYPE
+            || $parent->status !== ImportRunStatus::Running
+        ) {
+            throw new InvalidArgumentException(
+                'parentImportRunId must reference an existing etoro/rankings_discovery aggregate ImportRun with status Running.'
+            );
+        }
+    }
+
+    /**
      * Processes entries strictly in RankingPage order, one at a time.
      * In-page ambiguity is resolved first, for the whole page, before any
      * write (see resolveInPageIdentityGroups()). Identity against
@@ -98,7 +145,7 @@ final class ImportRankingPage
      * @param  list<RankingEntry>  $entries
      * @return array{0: int, 1: int} success count, failure count
      */
-    private function processEntries(array $entries, CarbonInterface $importedAt): array
+    private function processEntries(array $entries, CarbonInterface $importedAt, int $importRunId): array
     {
         [$conflictIndexes, $lastIndexByEntryIndex] = $this->resolveInPageIdentityGroups($entries);
 
@@ -106,7 +153,12 @@ final class ImportRankingPage
         $failureCount = 0;
 
         foreach ($entries as $index => $entry) {
+            // 1-based, preserving the original RankingPage/server order —
+            // never the zero-based PHP array index.
+            $rowNumber = $index + 1;
+
             if (isset($conflictIndexes[$index])) {
+                $this->recordFailure($importRunId, $rowNumber, $entry, ImportRunFailureReason::IdentityConflictWithinPage);
                 $failureCount++;
 
                 continue;
@@ -115,6 +167,7 @@ final class ImportRankingPage
             $resolution = $this->resolveAgainstExistingTrader($entry);
 
             if ($resolution['conflict']) {
+                $this->recordFailure($importRunId, $rowNumber, $entry, ImportRunFailureReason::IdentityConflictWithExistingTrader);
                 $failureCount++;
 
                 continue;
@@ -128,6 +181,27 @@ final class ImportRankingPage
         }
 
         return [$successCount, $failureCount];
+    }
+
+    /**
+     * Exactly one permanent, row-level audit record per controlled
+     * rejection — the attempted eToro identity (external_cid/username),
+     * never the existing conflicting Trader row's own identity, never a
+     * raw payload, exception message, or credential. Lives inside the same
+     * transaction as the trader writes and the finalizing ImportRun save,
+     * so an unexpected persistence failure rolls this back too — see
+     * handle()'s outer catch, which does not fabricate row-level failure
+     * records for that blanket-failure case.
+     */
+    private function recordFailure(int $importRunId, int $rowNumber, RankingEntry $entry, ImportRunFailureReason $reason): void
+    {
+        ImportRunFailure::create([
+            'import_run_id' => $importRunId,
+            'row_number' => $rowNumber,
+            'external_cid' => $entry->cid,
+            'username' => $entry->username,
+            'reason' => $reason,
+        ]);
     }
 
     /**

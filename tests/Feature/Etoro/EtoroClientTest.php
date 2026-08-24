@@ -156,6 +156,7 @@ it('disables redirects and treats a 3xx response as an unexpected response witho
         $this->fail('Expected EtoroUnexpectedResponseException to be thrown.');
     } catch (EtoroUnexpectedResponseException $exception) {
         expect($exception->getMessage())->not->toContain('evil.example.com');
+        expect($exception->attemptCount)->toBe(1);
     }
 
     Http::assertSentCount(1);
@@ -339,6 +340,26 @@ it('throws EtoroUnexpectedResponseException when a 2xx body does not decode to a
 
     app(EtoroClient::class)->authenticatedUser();
 })->throws(EtoroUnexpectedResponseException::class);
+
+it('reports the true physical attempt count on an unexpected-response body, including any prior retries', function () {
+    $callCount = 0;
+
+    Http::fake(function () use (&$callCount) {
+        $callCount++;
+
+        return match ($callCount) {
+            1, 2 => Http::response(['error' => 'boom'], 503),
+            default => Http::response('not-json-and-not-an-object', 200),
+        };
+    });
+
+    try {
+        app(EtoroClient::class)->authenticatedUser();
+        test()->fail('Expected EtoroUnexpectedResponseException to be thrown.');
+    } catch (EtoroUnexpectedResponseException $exception) {
+        expect($exception->attemptCount)->toBe(3);
+    }
+});
 
 it('never leaks configured credential values in exception messages', function () {
     Http::fake(['*' => Http::response(['error' => 'boom'], 401)]);

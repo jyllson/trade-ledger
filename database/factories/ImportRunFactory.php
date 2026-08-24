@@ -19,6 +19,8 @@ class ImportRunFactory extends Factory
     public function definition(): array
     {
         return [
+            'parent_import_run_id' => null,
+            'retry_of_import_run_id' => null,
             'source' => 'etoro',
             'type' => 'rankings',
             'status' => ImportRunStatus::Pending,
