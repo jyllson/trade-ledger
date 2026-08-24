@@ -1,7 +1,7 @@
 # TradeLedger — PROJECT.md
 
 **Status:** Draft v0.1<br>
-**Last verified:** 2026-08-22<br>
+**Last verified:** 2026-08-24<br>
 **Primary owner:** Slavko<br>
 **Working repository name:** `trade-ledger`
 
@@ -438,7 +438,7 @@ app/
 - Store timestamps in UTC.
 - Display timestamps in `Europe/Malta`.
 
-### Current implementation status (updated 2026-08-21)
+### Current implementation status (updated 2026-08-24)
 
 The tree above is the target shape and does not yet exist in full. What is
 actually implemented today, in addition to the eToro domain-model layer
@@ -542,43 +542,30 @@ discovery retry use case (`ChangeTraderStatus`,
 `/admin/import-runs`, and the `DiscoverTraders` page at
 `/admin/discover-traders`, D-031).
 
-**Product Milestone 2 (§20) implementation is therefore complete, but its
-"at least 20 candidates imported" acceptance criterion is NOT yet
-satisfied by live evidence.** No live Milestone-2 ranking discovery/import
-has been run against an approved database in the Checkpoint E–I
-implementation stream — every import in that stream, across every
-Checkpoint, has used either the three-row synthetic fixture or
-`Http::fake()` payloads in an isolated SQLite test database. This is
-distinct from the unrelated, already-completed one-off live API probes
-made earlier for Milestone 1 (capability spike) and the target-coverage
-stream (see below) — neither of those was a Milestone 2 discovery/import
-run, and neither demonstrates this criterion.
+**Product Milestone 2 (§20) implementation is complete, and all three §20
+acceptance criteria are now satisfied** (Checkpoint J, 2026-08-24; see
+`docs/REVIEW_STATUS.md` and `docs/WORKLOG.md` for full detail) — two of the
+three are confirmed directly by live runs, the third remains proven
+deterministically offline. A project owner explicitly approved a live,
+read-only `etoro:discover-traders` call, which was executed twice against
+a temporary, isolated SQLite acceptance database created solely for this
+purpose — never the development `trade_ledger` database. The first run
+imported 40 distinct real candidates (well above the "at least 20" bar),
+satisfying the candidate-count criterion. The second, identical run
+against the same database left the trader count and distinct-identity
+counts unchanged, confirming "repeated import creates no duplicates" under
+a real live call, in addition to the offline idempotent-rerun tests that
+already proved this deterministically. "Failed rows are visible" remains
+proven deterministically OFFLINE by the same dedicated Pest coverage as
+before (row-level-failure/Partial-status tests and `ImportRunResource` UI
+visibility tests) — the live acceptance run did not itself produce a
+failed row, and none was deliberately induced, consistent with the
+acceptance requirement.
 
-§20's other two Milestone 2 acceptance criteria — "repeated import creates
-no duplicates" and "failed rows are visible" — are already deterministically
-proven **offline**, by dedicated Pest coverage (idempotent-rerun tests,
-row-level-failure/Partial-status tests, and `ImportRunResource` UI
-visibility tests; see `docs/REVIEW_STATUS.md` for exact test paths/counts)
-and do not require a live call to satisfy. Only the candidate-count
-criterion is inherently live-only.
-
-Until a project owner explicitly approves and runs a live, read-only
-discovery call against a database they explicitly approve for that purpose
-(an existing development database or a separate, isolated acceptance
-database — the owner's choice, not assumed by any implementation stream)
-and confirms at least 20 real candidates, Milestone 2 must not be
-described as done. This project's own final acceptance gate additionally
-calls for repeating that same live discovery call against the same
-database and confirming no duplicates appear — not because §20's "repeated
-import creates no duplicates" criterion is itself live-only (it is already
-satisfied by the offline idempotent-rerun tests above), but as one further
-operational confirmation this project has chosen to require before
-treating real candidate data as accepted. If a live response happens to
-naturally produce a Partial/failed-row outcome, it should be reviewed in
-`/admin/import-runs` as a bonus confirmation, but manufacturing a live
-failure is not part of the acceptance requirement. See `docs/REVIEW_STATUS.md`
-for the exact remaining steps and the current PR/merge status of
-`codex/milestone-2-discovery-and-ui`.
+Milestone 2 is therefore functionally accepted. The only remaining step is
+integration: opening, reviewing, and merging the final pull request for
+`codex/milestone-2-discovery-and-ui` → `main`. See `docs/REVIEW_STATUS.md`
+for the exact remaining steps and the current PR/merge status.
 
 The target-coverage stream described above completes, via a one-off CLI
 call against the live API, only the calculation portion of one Milestone 4

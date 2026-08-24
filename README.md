@@ -5,20 +5,20 @@ monitoring copy traders, starting with eToro. See `PROJECT.md` for the full
 product specification and milestone plan.
 
 **Status:** Milestone 1 (API spike) complete. Product Milestone 2 (discovery
-and trader storage — see `PROJECT.md` §20) is **implemented** on branch
+and trader storage — see `PROJECT.md` §20) is **implemented, and all three
+§20 acceptance criteria are now satisfied** on branch
 `codex/milestone-2-discovery-and-ui` (live multi-page ranking discovery,
 row-level failure persistence, trader profile lookup, candidate/watched/
-ignored triage, discovery retry, and a read-only Filament UI), but its
-**live acceptance gate has not been run**: no live Milestone-2 ranking
-discovery/import has been run against an approved database in this
-implementation stream (Checkpoint E–I), and `≥20` real candidates has not
-been demonstrated. This is separate from the earlier, already-completed
-Milestone 1 capability spike and target-copy-coverage streams, which did
-include their own approved one-off live API probes for a different
-purpose (connectivity/capability verification and a single coverage
-calculation, not Milestone 2 discovery/import — see `docs/REVIEW_STATUS.md`
-history). Milestone 2 is not marked done until its own live discovery
-acceptance runs and a human reviews the result — see
+ignored triage, discovery retry, and a read-only Filament UI). Two of the
+three criteria are confirmed directly by a live discovery run, owner-
+approved and run twice against a temporary, isolated acceptance database
+(never the development `trade_ledger` database): "at least 20 real
+candidates imported" (40 distinct candidates imported) and "repeated
+import creates no duplicates" (an identical second run left the trader
+count and distinct-identity counts unchanged). "Failed rows are visible"
+remains proven deterministically OFFLINE by dedicated Pest coverage — see
+`docs/REVIEW_STATUS.md`. Only opening/reviewing/merging the final pull
+request to `main` remains before Milestone 2 is formally closed — see
 `docs/REVIEW_STATUS.md` for the exact remaining steps. The application
 contains no trading/write capability at any point.
 

@@ -2,22 +2,27 @@
 
 **Trenutni implementation stream:** product Milestone 2 (discovery i
 trader storage — `PROJECT.md` §20) — implementaciona grana
-`codex/milestone-2-discovery-and-ui` (Checkpoint E–I; grana kreirana od
+`codex/milestone-2-discovery-and-ui` (Checkpoint E–J; grana kreirana od
 `main` tip-a `cf5ac83`, koji je sam merge Checkpoint A–D grane
 `feature/trader-ranking-import`, vidi istorijsku sekciju ispod; vidi
 `docs/DECISIONS.md` D-018 za razliku između naziva grane/Checkpoint oznaka
 i product milestone numeracije u `PROJECT.md` §20)
 **Status:** Checkpoint E–H2 su implementaciono završeni, push-ovani na
 `origin/codex/milestone-2-discovery-and-ui` (tip `51b32e1`), svaki
-pregledan i odobren pre commit-a. Checkpoint I je documentation-only
-closeout + reproducibilan OFFLINE acceptance (ovaj diff) — **ne uključuje
-live eToro poziv niti pristup razvojnoj bazi `trade_ledger`**. Pull
-request prema `main` NIJE otvoren; grana NIJE mergovana.
-**Poslednje ažuriranje:** 2026-08-22
+pregledan i odobren pre commit-a. Checkpoint I je bio documentation-only
+closeout + reproducibilan OFFLINE acceptance (commit `c7159c6`).
+**Checkpoint J (ovaj diff, 2026-08-24) dokumentuje stvarno izvršen LIVE
+Milestone 2 acceptance** — sva tri `PROJECT.md` §20 kriterijuma su sada
+ispunjena (dva od njih direktno potvrđena live pozivima, treći ostaje
+deterministički dokazan OFFLINE — vidi sekciju ispod). Baza ovog diff-a je
+`c7159c6`
+(clean, sinhronizovan sa `origin/codex/milestone-2-discovery-and-ui`).
+Pull request prema `main` **NIJE otvoren u trenutku ovog diff-a**;
+integration vehicle za predstojeći PR biće trenutna grana
+`codex/milestone-2-discovery-and-ui`. Grana NIJE mergovana.
+**Poslednje ažuriranje:** 2026-08-24
 
-## ⚠️ Product Milestone 2 — implementacija završena, LIVE acceptance NIJE izvršen
-
-Ovo je najvažnija razlika koju svaki čitalac ovog dokumenta mora razumeti:
+## ✅ Product Milestone 2 — implementacija i sva tri acceptance kriterijuma ispunjena; preostaje samo PR/merge
 
 - **Implementacija (kod + testovi) product Milestone 2 iz `PROJECT.md` §20
   je kompletna** kroz Checkpoint E–H2: live multi-page ranking discovery,
@@ -25,49 +30,132 @@ Ovo je najvažnija razlika koju svaki čitalac ovog dokumenta mora razumeti:
   pravilom, candidate/watched/ignored triage, discovery retry, i read-only
   Filament UI (`TraderResource`, `ImportRunResource`, `DiscoverTraders`
   stranica).
-- **`PROJECT.md` §20 Milestone 2 kriterijum "najmanje 20 kandidata
-  importovano" NIJE ispunjen live dokazom:** nijedan LIVE Milestone-2
-  ranking discovery/import poziv protiv odobrene baze nije izvršen u
-  Checkpoint E–I implementacionom stream-u. Ovo je odvojeno od ranijih,
-  već završenih, odobrenih one-off live proba iz Milestone 1 (capability
-  spike) i target-copy-coverage stream-a (vidi istorijske sekcije ispod) —
-  te probe su verifikovale API konektivnost/kapabilnost i jednu coverage
-  kalkulaciju, ne Milestone 2 discovery/import, i ne dokazuju ovaj
-  kriterijum. Sve numeričke tvrdnje u ovom dokumentu i u `PROJECT.md` §9 o
-  broju importovanih redova u E–I stream-u odnose se ISKLJUČIVO na
-  sintetičke fixture/test podatke u izolovanoj SQLite bazi, nikad na
-  stvarne eToro kandidate.
-- Druga dva Milestone 2 kriterijuma iz §20 — "repeated import creates no
-  duplicates" i "failed rows are visible" — su VEĆ deterministički
-  dokazana OFFLINE, namenskim Pest testovima (idempotent-rerun,
-  row-level-failure/Partial-status, `ImportRunResource` UI vidljivost —
-  vidi "Reproducibilan offline acceptance" niže za tačne komande/brojeve)
-  i ne zahtevaju live poziv. Jedino "najmanje 20 kandidata" je suštinski
-  live-only kriterijum.
-- Milestone 2 se ne sme opisati kao "gotov" (done) dok se ne izvrši:
-  1. **Odobren live, read-only discovery poziv** (`php artisan
-     etoro:discover-traders {period} ...` ili Filament "Run discovery"),
-     eksplicitno pokrenut od strane vlasnika projekta, protiv eksplicitno
-     odobrene development ILI izolovane acceptance baze koju vlasnik
-     odobri za taj poziv (postojeća development baza ili posebna
-     izolovana baza — izbor vlasnika, nikad pretpostavka ove
-     implementacione/dokumentacione grane);
-  2. **Najmanje 20 stvarnih kandidata** vidljivih u toj odobrenoj bazi
-     nakon tog poziva;
-  3. **Ponovljen isti discovery poziv protiv iste baze, bez duplikata** —
-     ovo NIJE zato što je §20 "repeated import creates no duplicates"
-     kriterijum sam po sebi live-only (već je zadovoljen offline
-     idempotent-rerun testovima, vidi tačku iznad) — ovo je dodatna
-     operativna potvrda koju ovaj projekat bira da zahteva pre nego što
-     tretira stvarne kandidat podatke kao prihvaćene;
-  4. Tek nakon 1–3, otvaranje i pregled finalnog PR-a
-     `codex/milestone-2-discovery-and-ui` → `main`, i merge.
-- Ako live odgovor prirodno proizvede Partial/row-level failure ishod, to
-  je korisno dodatno posmatrati u `/admin/import-runs` — ali NIJE cilj
-  koji treba namerno izazvati niti uslov koji acceptance zahteva (taj deo
-  kriterijuma je već offline dokazan, vidi tačku iznad).
-- Do tada, `PROJECT.md` §20 Milestone 2 ostaje formalno NEZAVRŠEN, uprkos
-  tome što je implementacija u kodu i testovima kompletna.
+- **Sva tri `PROJECT.md` §20 Milestone 2 acceptance kriterijuma su sada
+  ispunjena** — dva od njih direktno potvrđena live pozivima, treći ostaje
+  dokazan OFFLINE:
+  1. **"najmanje 20 kandidata importovano"** — dokazano live pozivom (vidi
+     "Live acceptance run — Checkpoint J" niže): 40 stvarnih kandidata.
+  2. **"repeated import creates no duplicates"** — već je bilo
+     deterministički dokazano OFFLINE (idempotent-rerun Pest testovi) i
+     to ostaje na snazi; Checkpoint J dodatno potvrđuje isto ponašanje pod
+     stvarnim ponovljenim live pozivom protiv iste izolovane baze (broj
+     trader-a i distinct identity brojevi ostali nepromenjeni nakon drugog
+     poziva).
+  3. **"failed rows are visible"** — ostaje dokazano OFFLINE, istim
+     namenskim Pest testovima kao ranije (row-level-failure/Partial-status
+     testovi, `ImportRunResource` UI vidljivost testovi — vidi
+     "Reproducibilan offline acceptance" niže). Live acceptance poziv nije
+     sam proizveo neuspeli red, i to namerno nije izazivano (nije deo
+     acceptance zahteva).
+- Milestone 2 je time funkcionalno prihvaćen. Jedini preostali korak je
+  integration: otvaranje, pregled i merge finalnog PR-a
+  `codex/milestone-2-discovery-and-ui` → `main`.
+
+## Live acceptance run — Checkpoint J (2026-08-24)
+
+**Odobrenje vlasnika:** vlasnik projekta je eksplicitno odobrio (a) live,
+read-only eToro discovery poziv i (b) lokalni sintetički browser login
+test, oba protiv izolovane, posebno kreirane acceptance baze — **razvojna
+baza `trade_ledger` je izričito NIJE korišćena** ni u jednom od dva poziva.
+
+**Izolovana baza:** privremena SQLite baza kreirana isključivo za ovu
+svrhu, van repozitorijuma (`/private/tmp`); migracije primenjene. Pre bilo
+kog live poziva baza je bila prazna od product podataka: 0 traders, 0
+import_runs, 0 import_run_failures (jedan sintetički QA `User` red korišćen
+isključivo za browser login test se ne računa kao product podatak).
+
+**Env override (oba live discovery poziva — Run 1 i Run 2 — identičan):**
+`APP_ENV=local`, `DB_CONNECTION=sqlite`,
+`DB_DATABASE=<izolovana acceptance baza>`, `ETORO_ENABLED=true`,
+`ETORO_ALLOW_WRITE=false`, `ETORO_STORE_RAW_RESPONSES=false`. Lokalni
+eToro ključevi korišćeni isključivo kroz postojeću aplikacionu
+konfiguraciju — nijedna vrednost ključa nije čitana ili prikazana od
+strane implementatora u bilo kom trenutku. (Env override korišćen za
+lokalni browser login pokušaj opisan je odvojeno niže — browser login
+nije live eToro korak.)
+
+**Komanda (identična oba puta):**
+
+```bash
+php artisan etoro:discover-traders lastYear --max-pages=2 --start-page=1
+```
+
+### Run 1
+
+- Exit code `3` — ovo je dokumentovan `EXIT_DISCOVERY_WITH_REJECTIONS`
+  signal (`App\Console\Commands\EtoroDiscoverTradersCommand`), koji se
+  postavlja kad je agregatni `ImportRun` status `Partial`; `Partial` ovde
+  potiče isključivo od `stop_reason=page_limit_reached` (dostignut
+  `--max-pages=2` limit pre prirodnog kraja), NE od operational failure-a.
+  Vidi `app/Application/Imports/DiscoverEtoroTraders.php`
+  `determineStatus()` — `Partial` se vraća čim je `pagesFetched > 0` i
+  stop reason nije `natural_completion`, nezavisno od `failureCount`.
+- Rezultat: status `partial`, stop reason `page_limit_reached`, 2 stranice
+  fetch-ovane, 2 fizička HTTP zahteva, 40 uspešnih redova, 0 odbačenih
+  redova (40 = 2 stranice × fiksni `PAGE_SIZE=20`, vidi
+  `DiscoverEtoroTradersRequest::PAGE_SIZE`).
+- Stanje baze posle Run 1: 40 traders, 40 distinct `external_cid`, 40
+  distinct `username`, svih 40 u statusu `candidate`, 0 grupa duplikata po
+  CID-u, 0 grupa duplikata po username-u; 2 completed `rankings` child
+  `ImportRun` reda + 1 partial `rankings_discovery` agregatni red.
+
+### Run 2 (ponovljen, identičan poziv protiv iste baze)
+
+- Identičan izlaz: status `partial`, stop reason `page_limit_reached`, 2
+  stranice, 2 zahteva, 40 uspešnih, 0 odbačenih.
+- Stanje baze posle Run 2: **i dalje tačno** 40 traders, 40 distinct CID,
+  40 distinct username, svih 40 `candidate`, 0/0 grupa duplikata — bez
+  ijednog novog trader reda. Kumulativno (Run 1 + Run 2): 4 completed
+  `rankings` child redova + 2 partial `rankings_discovery` agregatna reda,
+  80 ukupno uspešnih, 0 ukupno neuspešnih, 4 ukupno zahteva,
+  `import_run_failures` i dalje 0 redova.
+
+### Zaključak
+
+Sva tri `PROJECT.md` §20 Milestone 2 acceptance kriterijuma su time
+ispunjena: ≥20 stvarnih kandidata (40 > 20) i ponovljen import bez
+duplikata/bez porasta trader broja su direktno potvrđeni ovim live
+pozivima; vidljivost neuspelih redova ostaje dokazana deterministički
+OFFLINE, namenskim Partial/failure i autentifikovanim `ImportRunResource`
+testovima (nepromenjeno ovim Checkpoint-om). Live odgovor nije prirodno
+proizveo row-level failure, i namerno izazivanje takvog ishoda nije
+pokušano (nije deo acceptance zahteva).
+
+### Lokalni browser QA (pokušano — ostaje NEIZVRŠENO/NEVERIFIKOVANO, ne product failure)
+
+Vlasnik je odobrio lokalni sintetički browser login pokušaj protiv iste
+izolovane baze — ovo **nije eToro live poziv**, isključivo lokalna Laravel
+autentikaciona provera. Dokazano: sintetički QA `User` hash i
+`Auth::attempt()` provera su potvrđeni kao `true` direktno protiv te baze.
+Login kroz prvi pokrenut `artisan serve` child proces nije uspeo — ovo je
+bilo konzistentno sa mogućim gubitkom DB env override-a u tom child
+procesu, ali da li je override zaista izgubljen nije formalno
+dijagnostikovano niti potvrđeno. Nakon toga, direktan PHP built-in server
+je ponovo pokrenut sa eksplicitnim env override-om, ali ugrađena browser
+URL safety politika je blokirala dalju interakciju sa `localhost`-om PRE
+nego što je
+autentifikovano UI stanje moglo biti potvrđeno kroz browser — nema
+potvrde da je taj restartovani server zaista ispravno poslužio acceptance
+bazu. Zaobilaženje ili alternativna browser automatizacija namerno **nije
+pokušana**, u skladu sa tom politikom.
+
+**Interaktivni browser QA time ostaje NEIZVRŠEN/NEVERIFIKOVAN** — ovo NIJE
+product failure, i ne poništava acceptance: autentifikovani Filament
+resource/page Pest testovi i pun test suite već deterministički dokazuju
+render, akcije, i odsustvo HTTP poziva pri renderovanju (vidi D-031 i
+"Reproducibilan offline acceptance" niže). Ovo se dokumentuje isključivo
+kao nezavršena dodatna interaktivna provera — nikad kao izveden ili
+prošao browser QA.
+
+### Bezbednosna napomena i čišćenje
+
+Privremeni lokalni server pokrenut za browser QA je ugašen po završetku.
+Izolovana acceptance SQLite baza ostaje lokalno (van repozitorijuma, u
+`/private/tmp`) kao dokaz do završetka PR-a/merge-a — **nije commit-ovana
+niti uključena ni u jedan review artefakt**. Nijedan CID, username, request
+ID, payload ili druga identifikaciona vrednost iz live odgovora nije
+zapisan u ovom dokumentu, u `PROJECT.md`, u `docs/WORKLOG.md`, niti bilo
+gde drugde u repozitorijumu — isključivo agregatni brojevi navedeni iznad.
 
 ## Checkpoint E–H2 sloj — završeno
 
@@ -107,45 +195,48 @@ Ovo je najvažnija razlika koju svaki čitalac ovog dokumenta mora razumeti:
   nepovezano upozorenje dokumentovano još od Milestone 1)
 - `composer types:check` (PHPStan): 0 errors
 - `composer lint:check` (Pint): prošao
-- Development baza `trade_ledger` nije korišćena u Checkpoint E–I
-  stream-u; nijedan LIVE Milestone-2 ranking discovery/import poziv
-  izvršen protiv odobrene baze u celom E–I stream-u (ranije, odvojene,
-  odobrene one-off live probe iz Milestone 1/target-coverage stream-ova
-  ostaju istorijska činjenica — vidi upozorenje na vrhu ovog dokumenta)
+- Development baza `trade_ledger` nije korišćena u Checkpoint E–H2
+  implementaciono-testnom radu (svi testovi rade protiv izolovane
+  `:memory:` SQLite baze); nijedan LIVE Milestone-2 ranking
+  discovery/import poziv izvršen u samom E–H2 implementacionom
+  stream-u — live acceptance je izvršen tek kasnije, kao poseban korak,
+  van implementacije samog koda (vidi "Live acceptance run — Checkpoint
+  J" na vrhu ovog dokumenta). Ranije, odvojene, odobrene one-off live
+  probe iz Milestone 1/target-coverage stream-ova ostaju istorijska
+  činjenica.
 
-## Šta NIJE (live) dokazano kroz Checkpoint E–H2 ili Checkpoint I
+## Šta i dalje NIJE urađeno posle Checkpoint J
 
-Implementacija i offline testovi POKRIVAJU sledeće ponašanje
-("repeated import creates no duplicates" i "failed rows are visible" iz
-`PROJECT.md` §20 su već deterministički dokazani OFFLINE — vidi upozorenje
-na vrhu ovog dokumenta). Ono što NIJE dokazano protiv stvarnog eToro API-ja
-ili odobrene baze:
+Sva tri `PROJECT.md` §20 Milestone 2 acceptance kriterijuma su sada
+ispunjena (vidi "Live acceptance run — Checkpoint J" na vrhu ovog
+dokumenta). Ono što i dalje nije urađeno:
 
-- najmanje 20 stvarno importovanih kandidata (vidi upozorenje na vrhu ovog
-  dokumenta) — offline dokaz koristi isključivo 3 sintetička fixture reda
-  i sintetičke `Http::fake()` payload-e u testovima;
+- otvaranje, pregled i merge finalnog PR-a
+  `codex/milestone-2-discovery-and-ui` → `main` — jedini preostali korak
+  pre nego što se Milestone 2 formalno može označiti kompletnim;
+- interaktivna browser QA provera Filament UI-ja protiv acceptance baze
+  — pokušana, ali ostaje NEIZVRŠENA/NEVERIFIKOVANA: blokirana ugrađenom
+  browser URL safety politikom nakon restarta lokalnog servera, PRE nego
+  što je autentifikovano UI stanje moglo biti potvrđeno (vidi "Lokalni
+  browser QA" gore); ovo ne blokira acceptance, jer je render/akcije
+  ponašanje već deterministički dokazano autentifikovanim Filament Pest
+  testovima;
 - scheduled/queued collection i dalje nije implementirana (van Milestone
-  2 §20 opsega — vidi `PROJECT.md` §9);
-- otvaranje i merge finalnog PR-a `codex/milestone-2-discovery-and-ui` →
-  `main` — namerno odloženo do live acceptance-a (vidi upozorenje na vrhu
-  ovog dokumenta).
+  2 §20 opsega — vidi `PROJECT.md` §9).
 
 ## Checkpoint E–H2 sloj — sledeći korak
 
-1. Vlasnik projekta odobrava i pokreće live, read-only discovery poziv
-   protiv eksplicitno odobrene development ILI izolovane acceptance baze.
-2. Potvrditi najmanje 20 stvarnih kandidata i ponovljen isti discovery bez
-   duplikata protiv iste baze (ova druga potvrda je dodatna operativna
-   provera koju projekat bira, ne live-only §20 zahtev — "no duplicates"
-   i "failed rows are visible" su već offline dokazani, vidi upozorenje na
-   vrhu ovog dokumenta; ako live odgovor prirodno proizvede Partial/failure
-   ishod, pregledati ga u `/admin/import-runs`, ali ga ne izazivati
-   namerno).
+1. ~~Vlasnik projekta odobrava i pokreće live, read-only discovery poziv
+   protiv eksplicitno odobrene development ILI izolovane acceptance
+   baze.~~ Završeno — Checkpoint J, vidi "Live acceptance run — Checkpoint
+   J" na vrhu ovog dokumenta.
+2. ~~Potvrditi najmanje 20 stvarnih kandidata i ponovljen isti discovery
+   bez duplikata protiv iste baze.~~ Završeno — Checkpoint J: 40
+   kandidata, ponovljen poziv bez duplikata/bez porasta trader broja.
 3. Otvoriti i pregledati PR `codex/milestone-2-discovery-and-ui` → `main`.
-4. Nakon merge-a i live acceptance-a, product Milestone 2 (`PROJECT.md`
-   §20) se može formalno označiti kompletnim, i sledeći milestone
-   (Milestone 3 — performance analytics) razmotriti u skladu sa stvarnim
-   prioritetom vlasnika.
+4. Nakon merge-a, product Milestone 2 (`PROJECT.md` §20) se može formalno
+   označiti kompletnim, i sledeći milestone (Milestone 3 — performance
+   analytics) razmotriti u skladu sa stvarnim prioritetom vlasnika.
 
 ---
 
@@ -214,9 +305,9 @@ ranking import foundation", commit `cf5ac83`) — vidi sekciju "Merge u
   (`8a3204b`), D-027.
 - ~~import history UI~~ — implementirano, Checkpoint H2 (`51b32e1`),
   `ImportRunResource`, D-031.
-- najmanje 20 stvarno importovanih kandidata — i dalje NIJE dokazano (ne
-  rešeno implementacijom same po sebi; zahteva live acceptance korak, vidi
-  upozorenje na vrhu ovog dokumenta).
+- ~~najmanje 20 stvarno importovanih kandidata~~ — dokazano live
+  acceptance korakom, Checkpoint J (2026-08-24), vidi "Live acceptance
+  run — Checkpoint J" na vrhu ovog dokumenta.
 - scheduled/queued collection — i dalje nije implementirano (van
   Milestone 2 §20 opsega, vidi `PROJECT.md` §9).
 - ~~generički `EtoroClient`-based live rankings import/orchestration~~ —
@@ -309,10 +400,12 @@ dokaziv, pa se ne navodi.
    `PROJECT.md`.~~ Razrešeno — trader/ranking persistence foundation i
    manualni fixture-only ranking import implementirani na grani
    `feature/trader-ranking-import` (Checkpoint A–D, vidi sekciju na vrhu
-   ovog dokumenta). **Ovo NIJE puna persistencija niti product-completion**
-   — product Milestone 2 iz `PROJECT.md` §20 i dalje NIJE kompletan (vidi
-   "Šta NIJE implementirano" u sekciji na vrhu ovog dokumenta i
-   `PROJECT.md` §9).
+   ovog dokumenta). **Ovo NIJE bila puna persistencija niti
+   product-completion u tom trenutku** — product Milestone 2 iz
+   `PROJECT.md` §20 tada je i dalje bio nekompletan. (Od tada rešeno:
+   implementacija je zaokružena kroz Checkpoint E–H2, a sva tri §20
+   acceptance kriterijuma su ispunjena kroz Checkpoint J, 2026-08-24 — vidi
+   "Live acceptance run — Checkpoint J" na vrhu ovog dokumenta.)
 
 ---
 

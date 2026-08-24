@@ -1153,3 +1153,200 @@ Bez izmene — `origin/codex/milestone-2-discovery-and-ui` ostaje na
 `main` **NIJE otvoren**; grana **NIJE mergovana**.
 
 ---
+
+## 2026-08-24 — Checkpoint J: dokumentacija stvarno izvršenog LIVE Milestone 2 acceptance-a
+
+Baza: `c7159c602b3e7ae0733e82bf33753ff93d31414c` ("docs: close out
+Milestone 2 offline acceptance", tip `codex/milestone-2-discovery-and-ui`)
+— potvrđeno `git status --short --branch` (clean, sinhronizovan sa
+origin-om) pre bilo koje izmene. **Documentation-only closeout** — ne
+dodaje niti menja produkcijski/test/config/database kod. Menja isključivo
+`README.md`, `PROJECT.md` (§header, §9), `docs/REVIEW_STATUS.md`, i ovaj
+unos u `docs/WORKLOG.md`. `docs/DECISIONS.md` nije menjan — live acceptance
+dokaz ne predstavlja novu arhitektonsku odluku, samo potvrdu postojećeg,
+već dokumentovanog ugovora (D-027 `PAGE_SIZE=20`/paging, D-030
+retry-eligibility metadata).
+
+### Šta je urađeno
+
+1. Vlasnik projekta je eksplicitno odobrio dva odvojena koraka pre ovog
+   dokumentacionog diff-a: (a) ponovljen live, read-only
+   `etoro:discover-traders` poziv protiv privremene, izolovane SQLite
+   acceptance baze (kreirane isključivo za ovu svrhu, van repozitorijuma),
+   i (b) lokalni sintetički browser login pokušaj protiv iste baze (**nije
+   eToro live poziv** — isključivo lokalna Laravel autentikaciona provera).
+   Oba koraka izvršio je Codex PM, u sopstvenoj lokalnoj sesiji, pre i
+   nezavisno od ovog dokumentacionog Checkpoint-a; implementator (Soni)
+   nije pravio nijedan nov live/DB poziv i dokumentuje isključivo
+   agregatne rezultate koje je Codex PM saopštio.
+   **Razvojna baza `trade_ledger` nije korišćena ni u jednom koraku.**
+2. Pre koraka (a), acceptance baza je bila prazna od product podataka (0
+   traders / 0 import_runs / 0 import_run_failures) — migracije
+   primenjene, jedan sintetički QA `User` red (za korak b) ne računa se
+   kao product podatak.
+3. Env override korišćen za oba live discovery poziva — Run 1 i Run 2 —
+   identičan (samo bezbedna imena/tipovi, bez vrednosti kredencijala; env
+   override za browser login pokušaj opisan je odvojeno u tački 6, jer
+   browser login nije live eToro korak):
+
+```text
+APP_ENV=local
+DB_CONNECTION=sqlite
+DB_DATABASE=<izolovana acceptance SQLite putanja, van repozitorijuma>
+ETORO_ENABLED=true
+ETORO_ALLOW_WRITE=false
+ETORO_STORE_RAW_RESPONSES=false
+```
+
+   Lokalni eToro `ETORO_API_KEY`/`ETORO_USER_KEY` korišćeni isključivo
+   kroz postojeću aplikacionu konfiguraciju — nijedna vrednost ključa nije
+   pročitana ili prikazana od strane implementatora u bilo kom trenutku.
+4. Identična komanda pokrenuta dva puta protiv iste izolovane baze:
+
+```bash
+php artisan etoro:discover-traders lastYear --max-pages=2 --start-page=1
+```
+
+   Run 1: exit code `3` (dokumentovan `EXIT_DISCOVERY_WITH_REJECTIONS`
+   signal — `ImportRunStatus::Partial` isključivo zbog
+   `stop_reason=page_limit_reached`, NE operational failure; vidi
+   `App\Application\Imports\DiscoverEtoroTraders::determineStatus()`),
+   status `partial`, 2 stranice, 2 fizička zahteva, 40 uspešnih redova, 0
+   odbačenih. Baza posle Run 1: 40 traders, 40 distinct `external_cid`, 40
+   distinct `username`, svih 40 `candidate`, 0/0 grupa duplikata (CID/
+   username), 2 completed `rankings` child + 1 partial
+   `rankings_discovery` agregatni red.
+
+   Run 2 (identičan poziv protiv iste baze): identičan agregatni izlaz
+   (partial/page_limit_reached/2 stranice/2 zahteva/40 uspešnih/0
+   odbačenih). Baza posle Run 2: **i dalje tačno** 40 traders, 40 distinct
+   CID, 40 distinct username, 0/0 grupa duplikata — bez ijednog novog
+   trader reda. Kumulativno: 4 completed `rankings` child + 2 partial
+   `rankings_discovery` agregatna reda, 80 ukupno uspešnih, 0 ukupno
+   neuspešnih, 4 ukupno zahteva, `import_run_failures` i dalje 0 redova.
+5. Zaključak: sva tri `PROJECT.md` §20 Milestone 2 acceptance kriterijuma
+   su time ispunjena — ≥20 stvarnih kandidata (40) i ponovljen import bez
+   duplikata/bez porasta trader broja su direktno potvrđeni ovim live
+   pozivima; vidljivost neuspelih redova ostaje dokazana deterministički
+   OFFLINE, namenskim Partial/failure i autentifikovanim
+   `ImportRunResource` testovima iz Checkpoint F/H2/I (nepromenjeno ovim
+   Checkpoint-om — vidi ispod). Live odgovor nije prirodno proizveo
+   row-level failure; namerno izazivanje takvog ishoda nije pokušano.
+6. Lokalni sintetički browser login pokušaj (**nije eToro live poziv**;
+   sopstveni env override, odvojen od tačke 3): sintetički QA `User` hash
+   i `Auth::attempt()` provera potvrđeni kao `true` direktno protiv
+   acceptance baze. Login kroz prvi pokrenut `artisan serve` child proces
+   nije uspeo — ovo je bilo konzistentno sa mogućim gubitkom DB env
+   override-a u tom child procesu, ali da li je override zaista izgubljen
+   nije formalno dijagnostikovano niti potvrđeno. Nakon toga, direktan PHP
+   built-in server je ponovo pokrenut sa eksplicitnim env override-om, ali
+   ugrađena browser URL safety politika je blokirala
+   dalju interakciju sa `localhost`-om PRE nego što je autentifikovano UI
+   stanje moglo biti potvrđeno kroz browser — nema potvrde da je taj
+   restartovani server zaista ispravno poslužio acceptance bazu.
+   Zaobilaženje/alternativna browser automatizacija namerno **nije
+   pokušana**, u skladu sa tom politikom. **Interaktivni browser QA ostaje
+   NEIZVRŠEN/NEVERIFIKOVAN** — ovo NIJE product failure, i ne poništava
+   acceptance — render/akcije ponašanje već je deterministički dokazano
+   autentifikovanim Filament Pest testovima (D-031) i punim test
+   suite-om. Dokumentovano isključivo kao nezavršena dodatna provera,
+   nikad kao izveden ili prošao browser QA.
+7. Privremeni lokalni server ugašen po završetku koraka (b). Izolovana
+   acceptance SQLite baza ostaje lokalno van repozitorijuma do završetka
+   PR-a/merge-a kao dokaz — nije commit-ovana niti uključena ni u jedan
+   review artefakt.
+8. `README.md`, `PROJECT.md` (§header `Last verified`, §9), i
+   `docs/REVIEW_STATUS.md` ažurirani da tačno odražavaju gore navedeno:
+   implementacija + sva tri acceptance kriterijuma su ispunjeni; browser
+   QA NIJE tvrđen kao prošao; razvojna/produkciona baza NIJE korišćena;
+   jedini preostali korak je otvaranje/pregled/merge finalnog PR-a.
+   `docs/REVIEW_STATUS.md` ostaje operativan: PR prema `main` **NIJE
+   otvoren** u trenutku ovog diff-a; integration vehicle biće trenutna
+   grana `codex/milestone-2-discovery-and-ui`.
+
+### Ciljana offline verifikacija dokumentovanih putanja (pre punog gate-a; isključivo protiv izolovane `phpunit.xml` SQLite `:memory:` baze, bez live poziva)
+
+```bash
+php artisan test --compact \
+  tests/Feature/Application/Imports/DiscoverEtoroTradersTest.php \
+  tests/Feature/Application/Imports/DiscoverEtoroTradersRequestTest.php \
+  tests/Feature/Application/Imports/DiscoverEtoroTradersArchitectureTest.php \
+  tests/Feature/Console/EtoroDiscoverTradersCommandTest.php \
+  tests/Feature/Models/ImportRunFailureTest.php \
+  tests/Feature/Filament/Resources/ImportRunResourceTest.php
+# => 112 passed / 380 assertions
+```
+
+Potvrđuje u kodu: `PAGE_SIZE=20` (`DiscoverEtoroTradersRequest`), exit
+code `3` = `EXIT_DISCOVERY_WITH_REJECTIONS` kad je status `Partial`
+(`EtoroDiscoverTradersCommand`), i da `determineStatus()` vraća `Partial`
+za `page_limit_reached` nezavisno od `failureCount` — tačno ponašanje
+opisano u gornjem live rezultatu.
+
+### Finalna nezavisno potvrđena verifikacija
+
+```bash
+php artisan test --compact   # 1380 total, 1376 passed, 0 failed, 4 skipped, 4712 assertions, 1 upozorenje
+composer types:check          # 0 errors
+composer lint:check           # passed
+```
+
+Brojevi su identični Checkpoint I finalnoj verifikaciji — ovaj
+dokumentacioni diff nije dotakao nijedan test/produkcijski fajl.
+
+### Eksplicitna bezbednosna potvrda
+
+- **Bez novih live eToro HTTP poziva tokom ovog dokumentacionog koraka** —
+  ponovljeni CLI `etoro:discover-traders` poziv (Run 1/Run 2) izvršio je
+  Codex PM, u sopstvenoj lokalnoj sesiji, uz eksplicitno odobrenje
+  vlasnika projekta, pre i nezavisno od ovog dokumentacionog diff-a;
+  implementator (Soni) nije pravio nijedan nov live eToro poziv i
+  dokumentuje isključivo agregatne rezultate koje je Codex PM saopštio.
+  Sve komande izvršene OD STRANE implementatora u ovom Checkpoint-u
+  (testovi, gate-ovi, git provere) rade isključivo protiv izolovane
+  `:memory:` SQLite baze ili su read-only Git provere.
+- **Lokalni browser login pokušaj nije eToro live poziv** — izveo ga je
+  Codex PM, u sopstvenoj lokalnoj sesiji, uz odobrenje vlasnika, kao
+  lokalnu Laravel autentikacionu proveru; ostaje NEIZVRŠEN/NEVERIFIKOVAN
+  kao interaktivna UI provera (vidi tačku 6 gore).
+- **Bez pristupa razvojnoj bazi `trade_ledger` ili acceptance SQLite
+  bazi od strane implementatora** — implementator nije otvarao, upitivao
+  niti menjao ni razvojnu ni acceptance bazu tokom ovog dokumentacionog
+  koraka; brojevi u ovom unosu i u `docs/REVIEW_STATUS.md` prenose se
+  isključivo iz izveštaja Codex PM-a (koji je oba koraka i izvršio), uz
+  prethodno odobrenje vlasnika projekta.
+- **`.env` nije čitan** — implementator nije pozvao `Read`/`cat`/slično
+  nad `.env` tokom ovog Checkpoint-a; sve env-vrednosti pomenute gore su
+  bezbedna imena/tipovi (`sqlite`, `local`, `true`/`false`), nikad
+  kredencijal.
+- **Bez realnih identiteta, CID-ova, username-a, request ID-eva ili
+  payload-a** — ni u ovom unosu, ni u `docs/REVIEW_STATUS.md`, ni u
+  `PROJECT.md`/`README.md` — isključivo agregatni brojevi (broj stranica,
+  zahteva, uspešnih/odbačenih redova, distinct CID/username count-ovi).
+- **Bez branch/index/commit/remote/push mutacija tokom ovog
+  dokumentacionog koraka pre eksplicitnog odobrenja** — sve izmene
+  postoje isključivo u working tree-u, čekaju pregled pre
+  stage/commit/push.
+
+### Review artefakti
+
+`checkpoint-j-live-acceptance-docs-v1.{patch,zip}` su git-ignorisani
+(`.gitignore` `/*.patch`, `/*.zip`) i nikad neće ući u git istoriju —
+služe isključivo za review pre commit-a. `.zip` sadrži TAČNO izmenjena
+4 dokumentaciona fajla (`README.md`, `PROJECT.md`,
+`docs/REVIEW_STATUS.md`, `docs/WORKLOG.md`), bez ijednog pomoćnog fajla
+(npr. manifesta) unutar arhive, bez ijednog produkcijskog/test/config/
+database fajla, i bez acceptance SQLite baze; `.patch` je zaseban
+artefakt. SHA-256 hash-evi navedeni u review izveštaju, van ovog
+dokumenta.
+
+### Remote stanje
+
+`origin/codex/milestone-2-discovery-and-ui` je pre ovog diff-a potvrđen na
+`c7159c602b3e7ae0733e82bf33753ff93d31414c` (Checkpoint I tip,
+`git status --short --branch` clean/sinhronizovan pre bilo koje izmene).
+Ovaj dokumentacioni diff (Checkpoint J) postoji isključivo u working
+tree-u — origin ostaje nepromenjen do commit/push odobrenja. Pull request
+prema `main` **NIJE otvoren**; grana **NIJE mergovana**.
+
+---
