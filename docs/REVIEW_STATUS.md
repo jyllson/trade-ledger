@@ -1,28 +1,29 @@
 # REVIEW_STATUS — TradeLedger
 
-**Trenutni implementation stream:** product Milestone 2 (discovery i
-trader storage — `PROJECT.md` §20) — implementaciona grana
-`codex/milestone-2-discovery-and-ui` (Checkpoint E–J; grana kreirana od
-`main` tip-a `cf5ac83`, koji je sam merge Checkpoint A–D grane
-`feature/trader-ranking-import`, vidi istorijsku sekciju ispod; vidi
-`docs/DECISIONS.md` D-018 za razliku između naziva grane/Checkpoint oznaka
-i product milestone numeracije u `PROJECT.md` §20)
-**Status:** Checkpoint E–H2 su implementaciono završeni, push-ovani na
-`origin/codex/milestone-2-discovery-and-ui` (tip `51b32e1`), svaki
-pregledan i odobren pre commit-a. Checkpoint I je bio documentation-only
-closeout + reproducibilan OFFLINE acceptance (commit `c7159c6`).
-**Checkpoint J (ovaj diff, 2026-08-24) dokumentuje stvarno izvršen LIVE
-Milestone 2 acceptance** — sva tri `PROJECT.md` §20 kriterijuma su sada
-ispunjena (dva od njih direktno potvrđena live pozivima, treći ostaje
-deterministički dokazan OFFLINE — vidi sekciju ispod). Baza ovog diff-a je
-`c7159c6`
-(clean, sinhronizovan sa `origin/codex/milestone-2-discovery-and-ui`).
-Pull request prema `main` **NIJE otvoren u trenutku ovog diff-a**;
-integration vehicle za predstojeći PR biće trenutna grana
-`codex/milestone-2-discovery-and-ui`. Grana NIJE mergovana.
-**Poslednje ažuriranje:** 2026-08-24
+**Trenutni implementation stream:** nijedan aktivan. Product Milestone 2
+(discovery i trader storage — `PROJECT.md` §20) je **COMPLETE** —
+implementacija (Checkpoint E–H2 na grani `codex/milestone-2-discovery-
+and-ui`), sva tri §20 acceptance kriterijuma (Checkpoint J), i integration
+(**PR #6, MERGED u `main`**) su svi završeni — ovaj post-merge zapis je
+Checkpoint K; vidi "Post-merge closeout — Checkpoint K" niže za pun
+detalj. Sledeći product
+milestone po `PROJECT.md` §20 je **Milestone 3 (performance analytics)** —
+NIJE započet.
+**Status:** PR #6
+(<https://github.com/jyllson/trade-ledger/pull/6>, "feat: complete
+Milestone 2 trader discovery") je **MERGED** u `main` — squash merge SHA
+`d107f6e21a2c5c9e122b783d782fee377bd59d69` (squash merge rezultat PR-a
+#6 — ne pretpostavljaj da je ovo i dalje `origin/main` tip; za trenutni
+`main` tip pogledaj `git rev-parse origin/main`), mergedAt
+`2026-08-24T08:15:42Z`. PR CI check `ci`: **SUCCESS** (1m04s). Grana
+`codex/milestone-2-discovery-and-ui`
+(Checkpoint E–J, tip `f3e0e8e` pre merge-a) je time integrisana u `main`;
+vidi istorijsku sekciju ispod za detaljan Checkpoint-po-Checkpoint zapis
+(vidi `docs/DECISIONS.md` D-018 za razliku između naziva grane/Checkpoint
+oznaka i product milestone numeracije u `PROJECT.md` §20).
+**Poslednje ažuriranje:** 2026-08-24 (Checkpoint K)
 
-## ✅ Product Milestone 2 — implementacija i sva tri acceptance kriterijuma ispunjena; preostaje samo PR/merge
+## ✅ Product Milestone 2 — COMPLETE (implementacija, sva tri acceptance kriterijuma, i merge u main)
 
 - **Implementacija (kod + testovi) product Milestone 2 iz `PROJECT.md` §20
   je kompletna** kroz Checkpoint E–H2: live multi-page ranking discovery,
@@ -47,9 +48,53 @@ integration vehicle za predstojeći PR biće trenutna grana
      "Reproducibilan offline acceptance" niže). Live acceptance poziv nije
      sam proizveo neuspeli red, i to namerno nije izazivano (nije deo
      acceptance zahteva).
-- Milestone 2 je time funkcionalno prihvaćen. Jedini preostali korak je
-  integration: otvaranje, pregled i merge finalnog PR-a
-  `codex/milestone-2-discovery-and-ui` → `main`.
+- **PR #6 je otvoren, pregledan, i MERGED u `main`** (squash SHA `d107f6e`,
+  mergedAt `2026-08-24T08:15:42Z`, CI `ci` check SUCCESS) — integration
+  korak je time takođe završen. Product Milestone 2 (`PROJECT.md` §20) je
+  time formalno **COMPLETE** — vidi "Post-merge closeout — Checkpoint K"
+  niže za pun detalj.
+
+## Post-merge closeout — Checkpoint K (2026-08-24)
+
+**PR #6:** <https://github.com/jyllson/trade-ledger/pull/6> ("feat:
+complete Milestone 2 trader discovery") — **MERGED** u `main`, squash
+merge SHA `d107f6e21a2c5c9e122b783d782fee377bd59d69`, mergedAt
+`2026-08-24T08:15:42Z`. PR CI check `ci`: **SUCCESS** (1m04s).
+`origin/main` na početku ovog Checkpoint-a (pre bilo koje dokumentacione
+izmene ovde) je bio potvrđen tačno na taj isti squash SHA, `d107f6e`
+(`git rev-parse origin/main`) — grana `codex/milestone-2-merge-record` je
+kreirana od tog tada-trenutnog `origin/main`. Ovo NIJE tvrdnja da je
+`d107f6e` trajno/zauvek `origin/main` tip; za stvarno trenutni tip u bilo
+kom kasnijem trenutku, uvek proveri `git rev-parse origin/main` direktno.
+
+**Pre-PR lokalni final gate** (poslednji put pokrenut na grani
+`codex/milestone-2-discovery-and-ui`, pre otvaranja PR-a):
+
+- Ciljani offline testovi dokumentovanih putanja (discovery/exit-code/
+  Partial/failure-visibility): **112/112 passed, 380 assertions**.
+- Pun test suite: **1380 total, 1376 passed, 4 skipped, 4712 assertions,
+  1 poznato nepovezano upozorenje**.
+- `composer types:check` (PHPStan): **0 errors**.
+- `composer lint:check` (Pint): **passed**.
+
+**Zaključak:** Product Milestone 2 (`PROJECT.md` §20) je time formalno
+**COMPLETE** — implementacija (Checkpoint E–H2), sva tri acceptance
+kriterijuma (Checkpoint J — dva direktno potvrđena live pozivima, treći
+deterministički dokazan OFFLINE, vidi "Live acceptance run — Checkpoint J"
+niže), i integration (PR #6 review + merge + zeleni CI) su svi završeni.
+Development baza `trade_ledger` nije korišćena ni za implementaciju ni za
+live acceptance u celom ovom implementacionom stream-u.
+
+Interaktivni browser QA (vidi "Lokalni browser QA" niže) **ostaje
+NEIZVRŠEN/NEVERIFIKOVAN** — ovo NIJE product failure i NIJE Milestone 2
+acceptance kriterijum (`PROJECT.md` §20 ne navodi interaktivnu browser UI
+proveru kao acceptance uslov), pa ne menja gornji zaključak; render/akcije
+ponašanje ostaje dokazano autentifikovanim Filament Pest testovima.
+
+Sledeći product milestone po `PROJECT.md` §20 je **Milestone 3
+(performance analytics)** — NIJE započet ovim Checkpoint-om niti
+implicitno planiran; čeka eksplicitnu odluku i prioritet vlasnika
+projekta.
 
 ## Live acceptance run — Checkpoint J (2026-08-24)
 
@@ -205,38 +250,44 @@ gde drugde u repozitorijumu — isključivo agregatni brojevi navedeni iznad.
   probe iz Milestone 1/target-coverage stream-ova ostaju istorijska
   činjenica.
 
-## Šta i dalje NIJE urađeno posle Checkpoint J
+## Šta i dalje nije urađeno (posle Milestone 2 merge — Checkpoint K)
 
-Sva tri `PROJECT.md` §20 Milestone 2 acceptance kriterijuma su sada
-ispunjena (vidi "Live acceptance run — Checkpoint J" na vrhu ovog
-dokumenta). Ono što i dalje nije urađeno:
+Product Milestone 2 (`PROJECT.md` §20) je formalno **COMPLETE** —
+implementacija, sva tri acceptance kriterijuma, i PR #6 merge (vidi
+"Post-merge closeout — Checkpoint K" na vrhu ovog dokumenta). Preostalo,
+van Milestone 2 opsega:
 
-- otvaranje, pregled i merge finalnog PR-a
-  `codex/milestone-2-discovery-and-ui` → `main` — jedini preostali korak
-  pre nego što se Milestone 2 formalno može označiti kompletnim;
 - interaktivna browser QA provera Filament UI-ja protiv acceptance baze
   — pokušana, ali ostaje NEIZVRŠENA/NEVERIFIKOVANA: blokirana ugrađenom
   browser URL safety politikom nakon restarta lokalnog servera, PRE nego
   što je autentifikovano UI stanje moglo biti potvrđeno (vidi "Lokalni
-  browser QA" gore); ovo ne blokira acceptance, jer je render/akcije
-  ponašanje već deterministički dokazano autentifikovanim Filament Pest
-  testovima;
+  browser QA" gore); ovo NIJE Milestone 2 acceptance kriterijum i ne
+  menja COMPLETE status, jer je render/akcije ponašanje već
+  deterministički dokazano autentifikovanim Filament Pest testovima;
 - scheduled/queued collection i dalje nije implementirana (van Milestone
-  2 §20 opsega — vidi `PROJECT.md` §9).
+  2 §20 opsega — vidi `PROJECT.md` §9);
+- **Milestone 3 (performance analytics)**, sledeći product milestone po
+  `PROJECT.md` §20, NIJE započet — čeka eksplicitnu odluku i prioritet
+  vlasnika projekta.
 
-## Checkpoint E–H2 sloj — sledeći korak
+## Checkpoint E–H2 sloj — sledeći korak (sve završeno)
 
 1. ~~Vlasnik projekta odobrava i pokreće live, read-only discovery poziv
    protiv eksplicitno odobrene development ILI izolovane acceptance
    baze.~~ Završeno — Checkpoint J, vidi "Live acceptance run — Checkpoint
-   J" na vrhu ovog dokumenta.
+   J" niže.
 2. ~~Potvrditi najmanje 20 stvarnih kandidata i ponovljen isti discovery
    bez duplikata protiv iste baze.~~ Završeno — Checkpoint J: 40
    kandidata, ponovljen poziv bez duplikata/bez porasta trader broja.
-3. Otvoriti i pregledati PR `codex/milestone-2-discovery-and-ui` → `main`.
-4. Nakon merge-a, product Milestone 2 (`PROJECT.md` §20) se može formalno
-   označiti kompletnim, i sledeći milestone (Milestone 3 — performance
-   analytics) razmotriti u skladu sa stvarnim prioritetom vlasnika.
+3. ~~Otvoriti i pregledati PR `codex/milestone-2-discovery-and-ui` →
+   `main`.~~ Završeno — **PR #6, MERGED** kao `d107f6e`
+   (`2026-08-24T08:15:42Z`), CI `ci` check SUCCESS — vidi "Post-merge
+   closeout — Checkpoint K" na vrhu ovog dokumenta.
+4. ~~Nakon merge-a, product Milestone 2 (`PROJECT.md` §20) se može
+   formalno označiti kompletnim...~~ Završeno — Milestone 2 je formalno
+   **COMPLETE**. Sledeći milestone (Milestone 3 — performance analytics)
+   NIJE započet ovim Checkpoint-om; razmotriti u skladu sa stvarnim
+   prioritetom vlasnika.
 
 ---
 

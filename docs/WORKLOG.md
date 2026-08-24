@@ -1349,4 +1349,117 @@ Ovaj dokumentacioni diff (Checkpoint J) postoji isključivo u working
 tree-u — origin ostaje nepromenjen do commit/push odobrenja. Pull request
 prema `main` **NIJE otvoren**; grana **NIJE mergovana**.
 
+**Napomena (dodato u Checkpoint K, 2026-08-24):** gornji pasus opisuje
+stanje PRE commit/push/PR/merge, tačno u trenutku kad je Checkpoint J
+napisan — istorijski tačan zapis, ostavljen nepromenjen. Ovaj diff je
+naknadno commit-ovan (`f3e0e8e`), push-ovan, otvoren kao PR #6, i
+MERGED u `main` (squash SHA `d107f6e`) — vidi novi "Checkpoint K"
+unos niže za trenutni, operativno aktuelan status.
+
+---
+
+## 2026-08-24 — Checkpoint K: post-merge closeout (documentation-only)
+
+Baza: `origin/main` je pre ovog unosa potvrđen na
+`d107f6e21a2c5c9e122b783d782fee377bd59d69` — nova grana
+`codex/milestone-2-merge-record` kreirana direktno sa svežeg `origin/main`
+(`git checkout -b codex/milestone-2-merge-record origin/main`), bez
+izmene bilo čega drugog. **Documentation-only closeout** — ne dodaje niti
+menja produkcijski/test/config/database kod. Menja isključivo `README.md`,
+`PROJECT.md` (§header, §9), `docs/REVIEW_STATUS.md`, i ovaj unos u
+`docs/WORKLOG.md`. `docs/DECISIONS.md` nije menjan — merge sam po sebi ne
+predstavlja novu arhitektonsku odluku.
+
+### Šta je urađeno
+
+1. Autoritativne PR/merge činjenice — vlasnik projekta je autorizovao
+   PR/merge workflow; Codex PM je proverio ove činjenice na GitHub-u i
+   saopštio ih Soniju (implementatoru), koji ih ovde samo dokumentuje
+   (ne ponovo verifikovane live GitHub API pozivom od strane
+   implementatora — implementator je lokalno verifikovao samo
+   `git rev-parse origin/main` protiv fetch-ovanog stanja):
+   - PR #6: <https://github.com/jyllson/trade-ledger/pull/6> ("feat:
+     complete Milestone 2 trader discovery").
+   - Status: **MERGED**, squash merge SHA
+     `d107f6e21a2c5c9e122b783d782fee377bd59d69`, mergedAt
+     `2026-08-24T08:15:42Z`.
+   - `origin/main` potvrđen na `d107f6e` (`git fetch origin` +
+     `git rev-parse origin/main`, izvršeno lokalno od strane
+     implementatora — jedini "live" korak u ovom Checkpoint-u je
+     standardan `git fetch`, ne eToro poziv).
+   - PR CI check `ci`: **SUCCESS**, 1m04s.
+2. Pre-PR lokalni final gate (već ranije, u okviru Checkpoint J, izvršen i
+   dokumentovan od strane implementatora, ovde samo prenesen u novi
+   post-merge kontekst): ciljani offline testovi 112/112 passed, 380
+   assertions; pun test suite 1380 total / 1376 passed / 4 skipped / 4712
+   assertions / 1 poznato nepovezano upozorenje; `composer types:check` 0
+   errors; `composer lint:check` passed. Nijedan test nije ponovo
+   pokretan u ovom Checkpoint-u — nema produkcijskih/test izmena od
+   Checkpoint J-a, pa ponovno pokretanje ne bi promenilo rezultat.
+3. `README.md`, `PROJECT.md`, `docs/REVIEW_STATUS.md` ažurirani da uklone
+   sve zastarele tvrdnje da PR nije otvoren ili da grana nije mergovana,
+   i da eksplicitno zabeleže: PR #6 MERGED, merge SHA, zeleni CI; product
+   Milestone 2 (`PROJECT.md` §20) formalno **COMPLETE**, uz isto precizno
+   razdvajanje koji od tri acceptance kriterijuma su live-potvrđena
+   (candidate-count, no-duplicates-on-repeat) naspram
+   deterministički-offline-dokazanog (failed-rows-visible); interaktivni
+   browser QA i dalje NEIZVRŠEN/NEVERIFIKOVAN (nije pretvoren u success);
+   development baza `trade_ledger` nikad korišćena za live acceptance;
+   sledeći product milestone (Milestone 3 — performance analytics) NIJE
+   započet ovim Checkpoint-om.
+4. `docs/REVIEW_STATUS.md` restrukturiran da bude operativno aktuelan: header
+   sada opisuje "nijedan aktivan implementation stream" (Milestone 2
+   COMPLETE, Milestone 3 nije počeo), dodata nova "Post-merge closeout —
+   Checkpoint K" sekcija sa PR/merge/CI/gate detaljima, i ažuriran
+   "Checkpoint E–H2 sloj — sledeći korak" da označi sve četiri stavke kao
+   završene (uključujući PR/merge). Istorijski Checkpoint J snapshot
+   (sekcija "Live acceptance run — Checkpoint J" i njena "Remote stanje"-
+   ekvivalentna napomena o tome da PR tada nije bio otvoren) OSTAVLJEN
+   NEPROMENJEN kao tada tačan istorijski zapis — nije prepisivan.
+5. U ovom `docs/WORKLOG.md`, na kraj historijskog Checkpoint J unosa
+   dodata je jedna napomena (bez izmene ostatka tog unosa) koja upućuje
+   čitaoca na ovaj novi Checkpoint K unos za trenutni status — vidi iznad.
+
+### Eksplicitna bezbednosna potvrda
+
+- **Bez novih live eToro HTTP poziva** — jedini mrežni poziv u ovom
+  Checkpoint-u bio je standardan `git fetch origin` radi potvrde
+  `origin/main` SHA; nijedan poziv ka `public-api.etoro.com`.
+- **Bez pristupa razvojnoj `trade_ledger` ili acceptance SQLite bazi** —
+  implementator nije otvarao, upitivao niti menjao nijednu bazu tokom
+  ovog Checkpoint-a.
+- **Bez browser QA pokušaja u ovom Checkpoint-u** — browser QA status
+  prenesen nepromenjen iz Checkpoint J-a (NEIZVRŠEN/NEVERIFIKOVAN); nije
+  ponovo pokušavan.
+- **`.env` nije čitan.**
+- **Bez realnih identiteta, CID-ova, username-a, request ID-eva ili
+  payload-a** — jedini novi identifikatori uneti u ovaj Checkpoint su
+  javni, autoritativni PR/merge/CI podaci koje je Codex PM proverio na
+  GitHub-u i saopštio implementatoru (PR URL, merge SHA, mergedAt
+  timestamp, CI status/trajanje), uz prethodno odobrenje vlasnika za sam
+  PR/merge workflow.
+- **Bez stage/commit/push tokom ovog koraka** — sve izmene postoje
+  isključivo u working tree-u nove grane `codex/milestone-2-merge-record`,
+  čekaju pregled.
+
+### Review artefakti
+
+`checkpoint-k-post-merge-closeout-v1.{patch,zip}` su git-ignorisani
+(`.gitignore` `/*.patch`, `/*.zip`) i nikad neće ući u git istoriju —
+služe isključivo za review pre commit-a. `.zip` sadrži TAČNO izmenjena
+4 dokumentaciona fajla (`README.md`, `PROJECT.md`,
+`docs/REVIEW_STATUS.md`, `docs/WORKLOG.md`), bez ijednog pomoćnog fajla
+unutar arhive, bez ijednog produkcijskog/test/config/database fajla;
+`.patch` je zaseban artefakt. SHA-256 hash-evi navedeni u review
+izveštaju, van ovog dokumenta.
+
+### Grana/remote stanje
+
+Nova grana `codex/milestone-2-merge-record` kreirana od svežeg
+`origin/main` (`d107f6e`), postoji samo lokalno — nije push-ovana. Sve
+izmene ovog Checkpoint-a postoje isključivo u working tree-u, čekaju
+stage/commit/push odobrenje. `origin/main` ostaje na `d107f6e`, bez
+izmene ovim Checkpoint-om (nijedna Git mutacija na `main` nije izvršena
+niti planirana ovim dokumentacionim korakom).
+
 ---

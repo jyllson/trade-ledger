@@ -527,7 +527,7 @@ Console → Application → Etoro/Analytics direction documented above.
 That `feature/trader-ranking-import` stream (Checkpoint A–D) was reviewed
 and merged into `main` as PR #5 (commit `cf5ac83`). A further
 implementation stream, branch `codex/milestone-2-discovery-and-ui`
-(branched from `cf5ac83`; Checkpoint E–I; see `docs/REVIEW_STATUS.md` and
+(branched from `cf5ac83`; Checkpoint E–J; see `docs/REVIEW_STATUS.md` and
 `docs/WORKLOG.md` for full detail), closed the remaining implementation
 gaps: live, multi-page ranking discovery
 (`App\Application\Imports\DiscoverEtoroTraders`, `php artisan
@@ -540,32 +540,43 @@ discovery retry use case (`ChangeTraderStatus`,
 `RetryEtoroTraderDiscovery`, D-030); and a read-only Filament UI
 (`TraderResource` at `/admin/traders`, `ImportRunResource` at
 `/admin/import-runs`, and the `DiscoverTraders` page at
-`/admin/discover-traders`, D-031).
+`/admin/discover-traders`, D-031). That stream was reviewed and merged
+into `main` as PR #6 ("feat: complete Milestone 2 trader discovery",
+squash commit `d107f6e21a2c5c9e122b783d782fee377bd59d69`).
 
-**Product Milestone 2 (§20) implementation is complete, and all three §20
-acceptance criteria are now satisfied** (Checkpoint J, 2026-08-24; see
-`docs/REVIEW_STATUS.md` and `docs/WORKLOG.md` for full detail) — two of the
-three are confirmed directly by live runs, the third remains proven
-deterministically offline. A project owner explicitly approved a live,
-read-only `etoro:discover-traders` call, which was executed twice against
-a temporary, isolated SQLite acceptance database created solely for this
-purpose — never the development `trade_ledger` database. The first run
-imported 40 distinct real candidates (well above the "at least 20" bar),
-satisfying the candidate-count criterion. The second, identical run
-against the same database left the trader count and distinct-identity
-counts unchanged, confirming "repeated import creates no duplicates" under
-a real live call, in addition to the offline idempotent-rerun tests that
-already proved this deterministically. "Failed rows are visible" remains
-proven deterministically OFFLINE by the same dedicated Pest coverage as
-before (row-level-failure/Partial-status tests and `ImportRunResource` UI
-visibility tests) — the live acceptance run did not itself produce a
-failed row, and none was deliberately induced, consistent with the
-acceptance requirement.
+**Product Milestone 2 (§20) is COMPLETE** — implementation, all three §20
+acceptance criteria (Checkpoint J, 2026-08-24), and integration into
+`main` via PR #6 (merge recorded in this post-merge documentation step,
+Checkpoint K, 2026-08-24) are all done; see `docs/REVIEW_STATUS.md` and
+`docs/WORKLOG.md` for full detail. Two of the
+three acceptance criteria are confirmed directly by live runs, the third
+remains proven deterministically offline. A project owner explicitly
+approved a live, read-only `etoro:discover-traders` call, which was
+executed twice against a temporary, isolated SQLite acceptance database
+created solely for this purpose — never the development `trade_ledger`
+database. The first run imported 40 distinct real candidates (well above
+the "at least 20" bar), satisfying the candidate-count criterion. The
+second, identical run against the same database left the trader count and
+distinct-identity counts unchanged, confirming "repeated import creates no
+duplicates" under a real live call, in addition to the offline
+idempotent-rerun tests that already proved this deterministically. "Failed
+rows are visible" remains proven deterministically OFFLINE by the same
+dedicated Pest coverage as before (row-level-failure/Partial-status tests
+and `ImportRunResource` UI visibility tests) — the live acceptance run did
+not itself produce a failed row, and none was deliberately induced,
+consistent with the acceptance requirement. (Interactive browser QA of
+the Filament UI was attempted separately but remains incomplete/
+unverified due to a browser URL safety policy — this is not a §20
+acceptance criterion and does not affect the COMPLETE status; UI
+render/action behavior is already proven by authenticated Filament Pest
+coverage.)
 
-Milestone 2 is therefore functionally accepted. The only remaining step is
-integration: opening, reviewing, and merging the final pull request for
-`codex/milestone-2-discovery-and-ui` → `main`. See `docs/REVIEW_STATUS.md`
-for the exact remaining steps and the current PR/merge status.
+PR #6 ("feat: complete Milestone 2 trader discovery") was reviewed and
+merged into `main` as a squash commit, SHA
+`d107f6e21a2c5c9e122b783d782fee377bd59d69`, with the `ci` CI check
+green. Product Milestone 2 is therefore formally complete. The next
+product milestone per §20 is Milestone 3 (performance analytics), which
+has not been started. See `docs/REVIEW_STATUS.md` for full detail.
 
 The target-coverage stream described above completes, via a one-off CLI
 call against the live API, only the calculation portion of one Milestone 4
