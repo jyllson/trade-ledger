@@ -31,7 +31,10 @@ return new class extends Migration
             $table->timestamp('synced_at');
             $table->timestamps();
 
-            $table->unique(['trader_id', 'granularity', 'period_start', 'source']);
+            $table->unique(
+                ['trader_id', 'granularity', 'period_start', 'source'],
+                'perf_points_trader_gran_period_source_unique',
+            );
         });
 
         Schema::table('traders', function (Blueprint $table) {
