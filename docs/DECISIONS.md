@@ -1257,3 +1257,41 @@ snimljen 2026-07-31. Upoređeni su isključivo agregatni brojevi:
 6. `daily` granularnost ima istu dokumentovanu šemu, ali **još nije
    live-potvrđena** — mapper/import za `daily` čeka posebno odobrenje za
    live probu.
+
+## D-033: Performance kalkulatori — formule, delimični periodi i preciznost
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 3, Checkpoint B)
+
+**Odluka:**
+
+- Ulaz za sve kalkulatore je `App\Analytics\Data\ReturnSeries`: strogo
+  rastući `PeriodReturn` niz jedne granularnosti
+  (`ReturnPeriodGranularity` daily/monthly/yearly). Samo prvi period sme
+  biti `isPartialStart`, samo poslednji `isInProgress`; prinos ≤ −100% se
+  odbija (equity bi postao ≤ 0).
+- `GainHistoryReturnSeriesAdapter` (App\Etoro → App\Analytics) označava:
+  partial start = prvi mesečni/godišnji period čiji datum nije početak
+  perioda; in progress = poslednji period čiji kalendarski ključ (UTC)
+  sadrži trenutak snimanja (`asOf`).
+- **Sve tačke** (uključujući delimične) ulaze u: složeni prinos, equity
+  krivu i drawdown — to je stvarno kretanje kapitala.
+- **Samo završeni periodi** ulaze u: prosek, medijanu, pozitivne/
+  negativne/ravne periode i njihov odnos, streak-ove, volatilnost,
+  najbolji/najgori period, prinos bez najboljeg/tri najbolja perioda i
+  trailing 12/24 meseca.
+- Formule: kumulativni prinos Π(1+r)−1; equity₀ = 1; drawdown =
+  equity/peak − 1 (peak uključuje početni equity 1.0); max drawdown je
+  nenegativna magnituda; volatilnost = uzoračka standardna devijacija
+  (n−1) po periodu, a godišnja (× √12) samo za mesečne serije; prinos 0
+  je „flat“ i prekida oba streak-a; trailing 12/24 samo za mesečne serije
+  i samo kad postoji dovoljno završenih meseci (inače `null`).
+- Preciznost: BCMath sa 18 decimala interno (`App\Analytics\Support\ReturnMath`),
+  rezultat se zaokružuje half-up (od nule za negativne) na ceo ppb
+  (`Percentage`) tek na kraju. Bez float-a; bez `bcround()` (PHP ^8.3).
+- Svaki rezultat nosi `methodologyVersion` (`performance-v1`,
+  `drawdown-v1`, `consistency-v1`) i granularnost; mesečni max drawdown
+  se nikad ne prikazuje kao dnevni/intraday.
+- v2 `totalGain` se čuva samo radi unakrsne provere; aplikacija sama
+  računa složeni prinos (fixture pipeline test dokazuje slaganje unutar
+  zaokruživanja API-ja).

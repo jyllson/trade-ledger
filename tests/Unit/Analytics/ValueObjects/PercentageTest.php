@@ -127,3 +127,20 @@ it('is immutable', function (): void {
     expect(fn () => $property->setValue($percentage, 999))->toThrow(Error::class);
     expect($percentage->partsPerBillion())->toBe(500);
 });
+
+it('converts a decimal fraction to ppb exactly for up to nine decimals', function (int|float $raw, int $expected) {
+    expect(Percentage::fromDecimalFraction($raw)->partsPerBillion())->toBe($expected);
+})->with([
+    [0.0123, 12_300_000],
+    [-0.0623, -62_300_000],
+    [0, 0],
+    [1, 1_000_000_000],
+    [0.000000001, 1],
+    [0.0000000005, 1],
+    [-0.0000000005, -1],
+    [0.123456789, 123_456_789],
+]);
+
+it('rejects non-numeric, non-finite, or out-of-range decimal fractions', function (mixed $raw) {
+    Percentage::fromDecimalFraction($raw);
+})->throws(InvalidArgumentException::class)->with(['0.1', null, INF, NAN, 1e30]);
