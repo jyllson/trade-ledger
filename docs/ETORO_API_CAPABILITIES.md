@@ -122,6 +122,32 @@ raw fajlova prošao pre commit-a).
 
 ---
 
+## Run #3 — 2026-10-05 (ciljana proba: `--only=gain-history`)
+
+Komanda: `php artisan etoro:doctor --live --only=gain-history
+--username=<trader iz julskog snimka> --capture-raw` (raw capture
+privatan i git-ignorisan). Tačno **jedan** GET, odobren od vlasnika.
+
+| Sposobnost | Metod | Path | HTTP status | Klasifikacija |
+|---|---|---|---|---|
+| Trader gain time-series (monthly) | GET | `/api/v2/portfolios/{username}/gain/monthly?count=1000` | 200 | works |
+
+- Struktura: `username, granularity, totalGain, gains[](83)`; tačka:
+  `date` (`YYYY-MM-DD`), `gain` (decimalni udeo, ≤ 4 decimale).
+- Rate-limit header-i **jesu** vraćeni: `RateLimit-Limit=60`,
+  `RateLimit-Remaining=59` (dokumentovani bez `X-` prefiksa — klijent ih
+  sada hvata).
+- Jedinice potvrđene unakrsno protiv v1 `/gain` snimka istog tradera:
+  v1 = procentni poeni, v2 = decimalni udeo (odnos tačno 100). Detalji i
+  konvencije (delimičan prvi mesec, tekući mesec u toku): `docs/DECISIONS.md`
+  D-032.
+- Klasifikacija: **works**.
+- Dodatni poziv istog dana: `gain/daily?count=1000` → 200, **works**;
+  1001 uzastopna kalendarska tačka (vikendi = 0), ista šema i jedinice
+  (D-035).
+
+---
+
 ## Development status (ažurirano 2026-08-06)
 
 Na grani `milestone/2-etoro-domain-model` (Checkpoint A–E, vidi

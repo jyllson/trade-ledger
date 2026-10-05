@@ -65,6 +65,32 @@ final readonly class Percentage
         return new self((int) $scaled);
     }
 
+    /**
+     * A plain decimal fraction (0.06 means 6%), rounded half-up (away from
+     * zero) to the nearest part-per-billion. Same explicit type checks as
+     * fromEtoroInvestmentPct(), but scaled with BCMath on the float's fixed
+     * decimal expansion instead of a float multiplication.
+     */
+    public static function fromDecimalFraction(mixed $raw): self
+    {
+        if (! is_int($raw) && ! is_float($raw)) {
+            throw new InvalidArgumentException('Decimal fraction value must be an int or float.');
+        }
+
+        if (is_float($raw) && (is_nan($raw) || is_infinite($raw))) {
+            throw new InvalidArgumentException('Decimal fraction value must be a finite number.');
+        }
+
+        $scaled = bcmul(sprintf('%.20F', $raw), '1000000000', 20);
+        $rounded = bcadd($scaled, bccomp($scaled, '0', 20) < 0 ? '-0.5' : '0.5', 0);
+
+        if (bccomp($rounded, (string) PHP_INT_MAX, 0) > 0 || bccomp($rounded, (string) PHP_INT_MIN, 0) < 0) {
+            throw new InvalidArgumentException('Decimal fraction value is outside the representable range.');
+        }
+
+        return new self((int) $rounded);
+    }
+
     public static function zero(): self
     {
         return new self(0);

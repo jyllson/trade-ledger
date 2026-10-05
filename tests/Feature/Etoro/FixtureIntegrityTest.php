@@ -45,8 +45,8 @@ function collectStrings(mixed $data, array &$out): void
     }
 }
 
-it('has all four fixture files present and valid JSON', function () {
-    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'live-portfolio.json'] as $file) {
+it('has all six fixture files present and valid JSON', function () {
+    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'gain-history-daily.json', 'live-portfolio.json'] as $file) {
         $path = fixtureDirFor($file).$file;
         expect($path)->toBeFile();
         json_decode(file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
@@ -109,6 +109,62 @@ it('has trader_001 firstActivity no later than the first performance period', fu
     expect($firstActivity)->toBeLessThanOrEqual($firstMonthly)
         ->and($firstMonthly)->toBeLessThanOrEqual($lastMonthly)
         ->and($lastMonthly)->toBeLessThanOrEqual($lastActivity);
+});
+
+it('has a v2 monthly gain time-series with the documented shape, decimal-fraction gains, and a consistent compounded totalGain', function () {
+    $history = fixtureJson('gain-history-monthly.json');
+
+    expect(array_keys($history))->toBe(['username', 'granularity', 'totalGain', 'gains'])
+        ->and($history['granularity'])->toBe('monthly')
+        ->and($history['gains'])->toHaveCount(26);
+
+    $compounded = 1.0;
+    $previousDate = null;
+
+    foreach ($history['gains'] as $point) {
+        expect(array_keys($point))->toBe(['date', 'gain'])
+            ->and($point['date'])->toMatch('/^\d{4}-\d{2}-\d{2}$/')
+            ->and(abs($point['gain']))->toBeLessThan(1.0);
+
+        if ($previousDate !== null) {
+            expect($point['date'] > $previousDate)->toBeTrue();
+        }
+
+        $previousDate = $point['date'];
+        $compounded *= 1 + $point['gain'];
+    }
+
+    expect(abs(($compounded - 1) - $history['totalGain']))->toBeLessThan(0.000001);
+});
+
+it('starts the v2 monthly gain series with a partial first month and continues on month starts', function () {
+    $dates = array_column(fixtureJson('gain-history-monthly.json')['gains'], 'date');
+
+    expect(substr($dates[0], 8, 2))->not->toBe('01');
+
+    foreach (array_slice($dates, 1) as $date) {
+        expect(substr($date, 8, 2))->toBe('01');
+    }
+});
+
+it('has a v2 daily gain time-series covering every calendar day, weekends included', function () {
+    $history = fixtureJson('gain-history-daily.json');
+    $dates = array_column($history['gains'], 'date');
+
+    expect($history['granularity'])->toBe('daily')
+        ->and($dates)->toHaveCount(14);
+
+    for ($i = 1; $i < count($dates); $i++) {
+        expect((strtotime($dates[$i]) - strtotime($dates[$i - 1])) / 86400)->toEqual(1);
+    }
+
+    $compounded = 1.0;
+
+    foreach ($history['gains'] as $point) {
+        $compounded *= 1 + $point['gain'];
+    }
+
+    expect(abs(($compounded - 1) - $history['totalGain']))->toBeLessThan(0.000001);
 });
 
 it('has 16 positions with exactly 13 fields each and 6 unique instruments', function () {
@@ -174,7 +230,7 @@ it('contains no private storage paths, credential header names, or configured cr
         $forbidden[] = $userKey;
     }
 
-    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'live-portfolio.json'] as $file) {
+    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'gain-history-daily.json', 'live-portfolio.json'] as $file) {
         $raw = fixtureRaw($file);
         foreach ($forbidden as $needle) {
             expect($raw)->not->toContain($needle);
@@ -183,7 +239,7 @@ it('contains no private storage paths, credential header names, or configured cr
 });
 
 it('contains only synthetic .invalid URLs, never a real eToro or third-party domain', function () {
-    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'live-portfolio.json'] as $file) {
+    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'gain-history-daily.json', 'live-portfolio.json'] as $file) {
         $data = fixtureJson($file);
         $strings = [];
         collectStrings($data, $strings);

@@ -17,6 +17,10 @@ use ValueError;
  * object. Pure PHP — no HTTP client, no Laravel container/config/storage/
  * logging, no API calls. Never mutates the input array.
  *
+ * v1 `gain` values are percentage points (see PerformancePoint and
+ * docs/DECISIONS.md D-032); performance analytics uses the v2 gain
+ * time-series instead.
+ *
  * For each of `monthly` and `yearly` independently: items are mapped in
  * their original order, checked for duplicate periods, and only then
  * sorted deterministically ascending by periodStartedAt — an unsorted but

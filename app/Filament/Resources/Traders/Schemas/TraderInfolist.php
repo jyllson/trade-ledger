@@ -91,6 +91,7 @@ class TraderInfolist
                             ->placeholder('Not yet observed'),
                     ])
                     ->columns(2),
+                ...TraderPerformanceSection::make(),
             ]);
     }
 }

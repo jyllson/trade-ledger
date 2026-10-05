@@ -22,9 +22,16 @@ use InvalidArgumentException;
 class EtoroClient
 {
     /**
+     * Both the legacy `X-RateLimit-*` names and the unprefixed
+     * `RateLimit-*` names documented in the current OpenAPI definition.
+     *
      * @var list<string>
      */
-    private const RATE_LIMIT_HEADERS = ['Retry-After', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'];
+    private const RATE_LIMIT_HEADERS = [
+        'Retry-After',
+        'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset',
+        'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'RateLimit-Policy',
+    ];
 
     /**
      * 1 initial attempt + 2 retries, for connection failures and 5xx only.
@@ -63,6 +70,27 @@ class EtoroClient
         $this->assertUsernameProvided($username);
 
         return $this->get('/api/v1/user-info/people/'.$this->pathSegment($username).'/gain');
+    }
+
+    /**
+     * Documented v2 gain time-series (OpenAPI `getGainHistory`). Unlike the
+     * v1 `/gain` endpoint, gain values here are documented as decimal
+     * fractions (0.06 = 6%). `$count` is the documented optional 1..1000
+     * limit; date-range parameters are intentionally not exposed until a
+     * consumer needs them.
+     */
+    public function userGainHistory(string $username, GainGranularity $granularity, ?int $count = null): EtoroApiResponse
+    {
+        $this->assertUsernameProvided($username);
+
+        if ($count !== null && ($count < 1 || $count > 1000)) {
+            throw new InvalidArgumentException('Gain history count must be between 1 and 1000.');
+        }
+
+        return $this->get(
+            '/api/v2/portfolios/'.$this->pathSegment($username).'/gain/'.$granularity->value,
+            $count !== null ? ['count' => $count] : [],
+        );
     }
 
     public function userLivePortfolio(string $username): EtoroApiResponse
@@ -329,8 +357,8 @@ class EtoroClient
             httpStatus: $status,
             requestId: $requestId,
             retryAfterSeconds: $retryAfter,
-            rateLimitLimit: $rateLimitHeaders['X-RateLimit-Limit'] ?? null,
-            rateLimitRemaining: $rateLimitHeaders['X-RateLimit-Remaining'] ?? null,
+            rateLimitLimit: $rateLimitHeaders['X-RateLimit-Limit'] ?? $rateLimitHeaders['RateLimit-Limit'] ?? null,
+            rateLimitRemaining: $rateLimitHeaders['X-RateLimit-Remaining'] ?? $rateLimitHeaders['RateLimit-Remaining'] ?? null,
             attemptCount: $attemptCount,
             totalDurationMs: $totalDurationMs,
             finalAttemptDurationMs: $finalAttemptDurationMs,

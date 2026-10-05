@@ -369,6 +369,47 @@ it('with --only=live-portfolio and no --username, calls only rankings then live-
     expect($output)->toContain('Trader live portfolio');
 });
 
+it('with --only=gain-history and --username given, sends exactly one GET to the v2 monthly gain time-series with the maximum count', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Http::fake([
+        'https://public-api.etoro.com/api/v2/portfolios/*/gain/monthly*' => Http::response([
+            'username' => 'demo_trader_one',
+            'granularity' => 'monthly',
+            'totalGain' => 0.1234,
+            'gains' => [['date' => '2026-01-01', 'gain' => 0.0123]],
+        ], 200, ['RateLimit-Limit' => '60', 'RateLimit-Remaining' => '59']),
+    ]);
+
+    $output = callEtoroDoctor(['--live' => true, '--only' => 'gain-history', '--username' => 'demo_trader_one']);
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request) => $request->method() === 'GET'
+        && $request->url() === 'https://public-api.etoro.com/api/v2/portfolios/demo_trader_one/gain/monthly?count=1000');
+
+    expect($output)->toContain('Trader gain time-series (monthly)')
+        ->toContain('gains[](1)')
+        ->toContain('59')
+        ->not->toContain('demo_trader_one')
+        ->not->toContain('0.0123');
+});
+
+it('does not include the gain-history probe in the full live run', function () {
+    config([
+        'etoro.enabled' => true,
+        'etoro.api_key' => 'test-api-key-value',
+        'etoro.user_key' => 'test-user-key-value',
+    ]);
+    Http::fake(fakeEtoroResponses());
+
+    callEtoroDoctor(['--live' => true]);
+
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/api/v2/portfolios/demo_trader_one/gain'));
+});
+
 it('with --only=live-portfolio and --username given, skips the rankings dependency entirely', function () {
     config([
         'etoro.enabled' => true,

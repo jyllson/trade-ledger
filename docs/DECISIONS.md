@@ -1197,3 +1197,218 @@ formalizuje postojeći, testovima potvrđen ugovor
   zavisnosti i odsustvo duplirane freshness/retry-eligibility logike.
 
 ---
+
+## D-032: Izvor performance podataka za Milestone 3 — v2 gain time-series, jedinice i konvencije
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 3, Checkpoint A, grana
+`codex/milestone-3-performance-analytics`)
+
+**Kontekst:** Zvanični OpenAPI (v1.385.0) dokumentuje dva relevantna
+endpointa:
+
+- v1 `GET /api/v1/user-info/people/{username}/gain` — opisan kao „gain
+  percentages“, bez eksplicitnih jedinica u šemi (`gain: number`);
+- v2 `GET /api/v2/portfolios/{username}/gain/{granularity}`
+  (`getGainHistory`) — `granularity ∈ {daily, monthly, yearly}`, opcioni
+  `minDate`/`maxDate`/`count (1..1000)`, eksplicitno: „Gain values are
+  decimal fractions: 0.06 = 6%“; `totalGain` = složeni gain serije;
+  dokumentovan `403` = „Target user has opted out of portfolio exposure“.
+
+**Dokaz (live, vlasnik odobrio jedan GET):** jedan poziv v2 `monthly`
+(`count=1000`) za istog tradera čiji je v1 `/gain` odgovor privatno
+snimljen 2026-07-31. Upoređeni su isključivo agregatni brojevi:
+
+- 80 preklapajućih meseci; medijana odnosa v1/v2 = **100.000**; 79/80
+  meseci se poklapa tačno (|v1 − 100·v2| ≈ 0); jedini izuzetak je mesec
+  koji je u trenutku v1 snimka još trajao.
+- `totalGain` = Π(1 + gain) − 1 sa razlikom ~2.6e-7 (zaokruživanje).
+- `gain` vrednosti imaju najviše 4 decimale; datumi su `YYYY-MM-DD`,
+  strogo rastući, jedinstveni.
+- Prva tačka može imati datum koji nije 1. u mesecu (delimičan prvi mesec
+  — početak aktivnosti); poslednja tačka je TEKUĆI, nezavršen mesec
+  (month-to-date).
+- Odgovor vraća `RateLimit-Limit`/`RateLimit-Remaining` header-e
+  (60/59) — bez `X-` prefiksa.
+
+**Odluka:**
+
+1. **v2 gain time-series je jedini izvor za performance analitiku.** v1
+   `/gain` se ne koristi za kalkulacije; v1 `gain` je u **procentnim
+   poenima** (`PerformancePoint`/`PerformanceHistoryMapper` docblock
+   ispravljen; v1 fixture eksplicitno označen kao ne-unit-faithful).
+2. v2 `gain` je **decimalni udeo**. Na granici mapiranja se ne množi/deli
+   float-om; vrednost se prevodi u tačnu decimalnu reprezentaciju (string,
+   BCMath) za kalkulacije.
+3. **Delimični periodi se eksplicitno označavaju**, ne odbacuju ćutke:
+   prvi period čiji datum nije početak perioda je `partial_start`;
+   poslednji period koji obuhvata trenutak sinhronizacije je
+   `in_progress`. Statistike po završenim mesecima (npr. positive-month
+   ratio, streak-ovi) po default-u isključuju `in_progress` period;
+   kumulativni prinos ga uključuje i to se prikazuje.
+4. `EtoroClient::userGainHistory(username, GainGranularity, ?count)` je
+   novi typed GET metod (bez date-range parametara dok ih ne zatreba
+   konzument); `etoro:doctor --only=gain-history` je nova proba koja NIJE
+   deo punog `--live` runa (pun run ostaje 7 proba).
+5. `EtoroClient` sada hvata i dokumentovane `RateLimit-*` header-e
+   (pored `X-RateLimit-*`). Ovo objašnjava zašto M1 nije video rate-limit
+   header-e. Dokumentovana kvota je 60 zahteva / 60 s, deljena između
+   svih endpointa bez posebnog limita; aplikacioni budžet ostaje 45/min.
+6. `daily` granularnost ima istu dokumentovanu šemu, ali **još nije
+   live-potvrđena** — mapper/import za `daily` čeka posebno odobrenje za
+   live probu.
+
+## D-033: Performance kalkulatori — formule, delimični periodi i preciznost
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 3, Checkpoint B)
+
+**Odluka:**
+
+- Ulaz za sve kalkulatore je `App\Analytics\Data\ReturnSeries`: strogo
+  rastući `PeriodReturn` niz jedne granularnosti
+  (`ReturnPeriodGranularity` daily/monthly/yearly). Samo prvi period sme
+  biti `isPartialStart`, samo poslednji `isInProgress`; prinos ≤ −100% se
+  odbija (equity bi postao ≤ 0).
+- `GainHistoryReturnSeriesAdapter` (App\Etoro → App\Analytics) označava:
+  partial start = prvi mesečni/godišnji period čiji datum nije početak
+  perioda; in progress = poslednji period čiji kalendarski ključ (UTC)
+  sadrži trenutak snimanja (`asOf`).
+- **Sve tačke** (uključujući delimične) ulaze u: složeni prinos, equity
+  krivu i drawdown — to je stvarno kretanje kapitala.
+- **Samo završeni periodi** ulaze u: prosek, medijanu, pozitivne/
+  negativne/ravne periode i njihov odnos, streak-ove, volatilnost,
+  najbolji/najgori period, prinos bez najboljeg/tri najbolja perioda i
+  trailing 12/24 meseca.
+- Formule: kumulativni prinos Π(1+r)−1; equity₀ = 1; drawdown =
+  equity/peak − 1 (peak uključuje početni equity 1.0); max drawdown je
+  nenegativna magnituda; volatilnost = uzoračka standardna devijacija
+  (n−1) po periodu, a godišnja (× √12) samo za mesečne serije; prinos 0
+  je „flat“ i prekida oba streak-a; trailing 12/24 samo za mesečne serije
+  i samo kad postoji dovoljno završenih meseci (inače `null`).
+- Preciznost: BCMath sa 18 decimala interno (`App\Analytics\Support\ReturnMath`),
+  rezultat se zaokružuje half-up (od nule za negativne) na ceo ppb
+  (`Percentage`) tek na kraju. Bez float-a; bez `bcround()` (PHP ^8.3).
+- Svaki rezultat nosi `methodologyVersion` (`performance-v1`,
+  `drawdown-v1`, `consistency-v1`) i granularnost; mesečni max drawdown
+  se nikad ne prikazuje kao dnevni/intraday.
+- v2 `totalGain` se čuva samo radi unakrsne provere; aplikacija sama
+  računa složeni prinos (fixture pipeline test dokazuje slaganje unutar
+  zaokruživanja API-ja).
+
+## D-034: Performance persistence i queued sinhronizacija
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 3, Checkpoint C; vlasnik odlučio: queued
+jobs odmah)
+
+**Odluka:**
+
+- Tabela `performance_points`: `trader_id` (FK, cascade), `granularity`,
+  `period_start` (DATE, datum iz API-ja), `gain_ppb` (signed BIGINT, tačan
+  decimalni udeo u ppb — isto kao `Percentage`; bez DECIMAL/float), `source`
+  (`etoro_v2_gain`), `synced_at`; unique
+  `(trader_id, granularity, period_start, source)` (PROJECT.md §11/§16).
+  `period_start` namerno NIJE Eloquent date cast — svi upisi čuvaju isti
+  `Y-m-d` string (SQLite bi inače dobio i vreme).
+- Partial-start/in-progress se NE čuvaju — izvode se iz `period_start` i
+  `synced_at` (D-032/D-033), da se ne bi zastareli.
+- `traders.performance_synced_at` (poslednji USPEŠAN sync) i
+  `traders.performance_visibility` (`available|private|not_found`).
+- `App\Application\Traders\SyncTraderPerformance`: jedan `performance`
+  `ImportRun` po pozivu, kreiran pre HTTP poziva; poziva samo
+  `EtoroClient::userGainHistory(monthly, 1000)`; zahteva tačno isti
+  username u odgovoru; sačuvana mesečna serija se **zamenjuje** odgovorom
+  (upsert + brisanje perioda koji više nisu vraćeni) u istoj transakciji
+  sa finalize-om ImportRun-a → idempotentno.
+- Ishodi: 403 → `not_visible` + `private` (postojeća istorija se čuva,
+  bez retry-ja); 404 → `not_found`; 429/5xx/transport →
+  `temporarily_unavailable` (jedini retryable, nosi Retry-After);
+  mapping/granularity/identity greške → fail closed, ništa se ne upisuje.
+  `error_summary` je statičan tekst.
+- `App\Jobs\SyncTraderPerformanceJob`: `ShouldBeUnique` po trader-u (1h),
+  `RateLimited('etoro-api')` middleware, `retryUntil` 6h (rate-limit
+  release-ovi se broje kao pokušaji), release samo za retryable ishod
+  (Retry-After ili 60 s × pokušaj, max 900 s). Rate limiter `etoro-api` =
+  `ETORO_REQUESTS_PER_MINUTE`/min, deljen za sve eToro job-ove (eToro
+  default kvota je deljena između endpointa).
+- `php artisan etoro:sync-performance {username?} {--watched} {--now}`:
+  podrazumevano queue-uje; `--now` izvršava sinhrono i prikazuje samo
+  trader ID, ishod, broj tačaka i ImportRun ID. Nikad ne kreira Trader.
+  Kad je integracija isključena, ništa ne queue-uje.
+- Scheduler: `etoro:sync-performance --watched` dnevno u 03:00 UTC
+  (PROJECT.md §16), `withoutOverlapping`. Radi samo uz `schedule:run`
+  cron i aktivan queue worker.
+- Samo mesečna granularnost; dnevna čeka live potvrdu (D-032 tačka 6).
+
+## D-035: Dnevna serija — live potvrda i sinhronizacija
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 3, Checkpoint C2; live poziv iz dnevnog
+pool-a, 2/10)
+
+**Dokaz (jedan GET, `daily`, `count=1000`, isti trader kao D-032; samo
+agregati):** HTTP 200; ista šema kao mesečna (`username, granularity,
+totalGain, gains[]`); **1001** tačka (count + 1) bez rupa — svaki
+kalendarski dan, uključujući vikende (≈21% tačaka je tačno 0); gain je
+decimalni udeo sa ≤ 4 decimale; `totalGain` = složena serija (razlika
+~1.5e-7). Dnevne vrednosti složene po mesecu poklapaju se sa mesečnom
+serijom (medijana razlike 0.008 pp; 1/32 meseci > 0.1 pp — posledica
+zaokruživanja dnevnih vrednosti na 4 decimale). Poslednja tačka nije
+današnji dan.
+
+**Odluka:**
+
+- Sync po trader-u: prvo `monthly`, pa `daily` (svaki svoj `performance`
+  ImportRun sa `query.granularity`). Konačan neuspeh mesečnog (npr.
+  privatan) preskače dnevni zahtev; privremena greška bilo kog release-uje
+  ceo job (oba su idempotentna).
+- Zamena serije važi samo **unutar vraćenog opsega datuma** — dnevni
+  prozor od ~1000 dana klizi, pa se stariji sačuvani dani nikad ne brišu.
+  Za mesečnu (puna istorija) ovo je isto kao potpuna zamena.
+- Dnevni drawdown se prikazuje kao „dnevni, poslednjih N dana“ sa
+  eksplicitnim opsegom; dublja dnevna istorija bi zahtevala
+  `minDate`/`maxDate` straničenje (nije implementirano). Mesečna
+  statistika (konzistentnost, trailing) i dalje koristi mesečnu seriju —
+  dnevna se ne agregira u mesečnu.
+- Budžet: 2 zahteva po trader-u po sync-u; dnevni scheduled sync watched
+  trader-a time troši 2 × broj watched trader-a zahteva kroz zajednički
+  `etoro-api` limiter. Napomena: ovo su automatizovani produkcijski
+  pozivi koje vlasnik pokreće uključivanjem worker-a/scheduler-a — ne
+  troše agentov dnevni pool za razvoj.
+- Novi sintetički fixture `tests/Fixtures/Etoro/gain-history-daily.json`
+  (14 uzastopnih dana, vikend nule); leakage scan protiv raw snimka: 0
+  preklapanja.
+
+## D-036: Performance UI na stranici tradera
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 3, Checkpoint D)
+
+**Odluka:**
+
+- `App\Application\Traders\BuildTraderPerformanceReport` gradi read model
+  isključivo iz SAČUVANIH `performance_points` (nikad HTTP pri
+  renderovanju — nastavak D-031). Partial-start/in-progress izvodi
+  `App\Analytics\Support\PeriodClassifier` (jedino mesto te logike; koristi
+  ga i `GainHistoryReturnSeriesAdapter`), sa `asOf` = najnoviji
+  `synced_at` serije. Registrovan kao `scoped` singleton i memoizuje
+  izveštaj po trader-u/sync timestamp-u, jer ga infolist i tri widget-a
+  čitaju u istom zahtevu.
+- `ViewTrader`: sekcije „Performance sync“ (vidljivost, poslednji uspešan
+  sync), „Performance — monthly“ i „Performance — daily“ (sakrivene dok
+  nema podataka); svaka brojka nosi granularnost i posmatrani period;
+  delimični/tekući periodi su eksplicitno označeni; mesečni max drawdown
+  je eksplicitno „not intraday“. Footer widget-i: mesečni equity index,
+  drawdown kriva (dnevna kad postoji, inače mesečna — naslov kaže koja) i
+  tabela mesečnih prinosa godina × mesec.
+- Akcija „Sync performance“ ide isključivo kroz
+  `App\Application\Traders\QueueTraderPerformanceSync` (Filament ne sme da
+  dispatch-uje direktno — D-031 arch test); kad je integracija
+  isključena, ništa se ne queue-uje. Komanda `etoro:sync-performance`
+  koristi isti use case.
+- Formatiranje: `App\Filament\Support\PercentageDisplay` — BCMath, half
+  away from zero; float samo za Chart.js ose (prezentacija).
+- Panel nema sopstvenu Filament temu, pa custom Blade koristi inline
+  stilove sa Filament CSS varijablama boja (`--success-600`,
+  `--danger-600`) umesto nekompajliranih Tailwind klasa.

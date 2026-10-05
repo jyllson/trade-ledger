@@ -8,7 +8,15 @@ and-ui`), sva tri §20 acceptance kriterijuma (Checkpoint J), i integration
 Checkpoint K; vidi "Post-merge closeout — Checkpoint K" niže za pun
 detalj. Sledeći product
 milestone po `PROJECT.md` §20 je **Milestone 3 (performance analytics)** —
-NIJE započet.
+vlasnik ga je izabrao kao sledeći (2026-10-05); **u toku** na grani
+`codex/milestone-3-performance-analytics` — Checkpoint A (izvor podataka
+i jedinice, D-032), B (kalkulatori, D-033), C/C2 (persistence + queued
+monthly/daily sync, D-034/D-035) i D (Filament UI, D-036) završeni;
+sledi zatvaranje M3 (acceptance + PR/merge).
+**Post-merge zapis:** Checkpoint K closeout je mergovan u `main` kao
+PR #7 (<https://github.com/jyllson/trade-ledger/pull/7>, merge SHA
+`9bf63be`, mergedAt `2026-08-24T08:33:36Z`, CI `ci` SUCCESS) — vidi
+`docs/WORKLOG.md` 2026-10-05.
 **Status:** PR #6
 (<https://github.com/jyllson/trade-ledger/pull/6>, "feat: complete
 Milestone 2 trader discovery") je **MERGED** u `main` — squash merge SHA
@@ -21,7 +29,7 @@ Milestone 2 trader discovery") je **MERGED** u `main` — squash merge SHA
 vidi istorijsku sekciju ispod za detaljan Checkpoint-po-Checkpoint zapis
 (vidi `docs/DECISIONS.md` D-018 za razliku između naziva grane/Checkpoint
 oznaka i product milestone numeracije u `PROJECT.md` §20).
-**Poslednje ažuriranje:** 2026-08-24 (Checkpoint K)
+**Poslednje ažuriranje:** 2026-10-05 (post-Milestone 2 housekeeping)
 
 ## ✅ Product Milestone 2 — COMPLETE (implementacija, sva tri acceptance kriterijuma, i merge u main)
 

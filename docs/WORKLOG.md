@@ -1462,4 +1462,178 @@ stage/commit/push odobrenje. `origin/main` ostaje na `d107f6e`, bez
 izmene ovim Checkpoint-om (nijedna Git mutacija na `main` nije izvršena
 niti planirana ovim dokumentacionim korakom).
 
+> **Naknadna napomena (2026-10-05):** gornji "Grana/remote stanje" opis je
+> tačan istorijski snapshot u trenutku pisanja. Grana
+> `codex/milestone-2-merge-record` je kasnije push-ovana i mergovana kao
+> PR #7 — vidi unos "2026-10-05 — Post-Milestone 2 housekeeping" niže.
+
 ---
+
+## 2026-10-05 — Post-Milestone 2 housekeeping (pred Milestone 3)
+
+**Documentation-only.** Bez izmena produkcijskog/test/config/database
+koda, bez eToro poziva, bez pristupa bazi, `.env` nije čitan.
+
+### Šta je urađeno
+
+1. Zabeležen merge Checkpoint K closeout-a (proveren `gh pr view 7`):
+   - PR #7: <https://github.com/jyllson/trade-ledger/pull/7> ("docs:
+     close out Milestone 2 merge") — **MERGED**, merge SHA
+     `9bf63bee749918c9b931a9b2c22899a353afb1da`, mergedAt
+     `2026-08-24T08:33:36Z`, CI check `ci`: **SUCCESS**.
+   - `origin/main` je na početku ovog koraka bio na `9bf63be`.
+2. Lokalni `main` fast-forward-ovan na `origin/main` (`9bf63be`).
+3. Obrisane lokalne grane čiji je tip bio identičan `origin/` kopiji
+   (`codex/milestone-2-discovery-and-ui`,
+   `codex/milestone-2-merge-record`, `feature/trader-ranking-import`) —
+   remote grane nisu dirane.
+4. 32 git-ignorisana review artefakta (`checkpoint-*.patch`/`.zip`)
+   premeštena iz korena repozitorijuma u
+   `../tradelytics-review-artifacts/` (van repozitorijuma) — ništa nije
+   obrisano.
+5. `docs/REVIEW_STATUS.md` header ažuriran (PR #7, sledeći korak
+   Milestone 3).
+
+### Odluke vlasnika za Milestone 3 (2026-10-05)
+
+- Sledeći product milestone: **Milestone 3 (performance analytics)**.
+- Odobren **jedan** read-only live GET poziv radi potvrde jedinica i
+  oblika `/api/v1/user-info/people/{username}/gain` odgovora (Checkpoint
+  A Milestone 3 stream-a).
+- Sinhronizacija performance podataka ide odmah kroz **queued job**
+  (database queue), ne samo sinhrono iz CLI-ja.
+
+---
+
+## 2026-10-05 — Milestone 3, Checkpoint A: izvor performance podataka i jedinice
+
+Grana `codex/milestone-3-performance-analytics` (od
+`chore/post-milestone-2-housekeeping`, `7306dd7`).
+
+### Šta je urađeno
+
+1. Pročitan zvanični OpenAPI (v1.385.0) za v1 `/gain`, v1 `/daily-gain` i
+   v2 `/api/v2/portfolios/{username}/gain/{granularity}`. v2 eksplicitno
+   dokumentuje decimalne udele, `daily/monthly/yearly`, `count ≤ 1000` i
+   `403` za opt-out.
+2. Pregledan postojeći privatni v1 `/gain` raw snimak (2026-07-31), samo
+   agregatne statistike: medijana |gain| 3.3 mesečno / 31.87 godišnje →
+   v1 je u procentnim poenima, suprotno docblock-u `PerformancePoint` i
+   sintetičkom fixture-u.
+3. Dodat `App\Etoro\GainGranularity` i
+   `EtoroClient::userGainHistory()`; `etoro:doctor --only=gain-history`
+   (nije deo punog `--live` runa). Klijent sada hvata i `RateLimit-*`
+   header-e.
+4. **Live poziv (vlasnik odobrio tačno jedan GET):**
+   `etoro:doctor --live --only=gain-history --capture-raw` → HTTP 200,
+   1 pokušaj, ~1.1 s, 83 mesečne tačke, `RateLimit-Limit=60`,
+   `RateLimit-Remaining=59`. Raw snimak ostaje privatan i git-ignorisan.
+   Unakrsna provera protiv v1 snimka (agregati): odnos v1/v2 = 100.000,
+   79/80 meseci identično; `totalGain` = složena serija.
+5. Novi potpuno sintetički fixture `tests/Fixtures/Etoro/gain-history-monthly.json`
+   (26 tačaka, delimičan prvi mesec, konzistentan `totalGain`); leakage
+   scan protiv raw snimka: 0 preklapanja (datumi, parovi datum/gain,
+   username, totalGain). `FixtureIntegrityTest` proširen.
+6. Ispravljeni docblock-ovi `PerformancePoint`/`PerformanceHistoryMapper`
+   i fixture README (v1 = procentni poeni, nije analitički izvor).
+7. `composer types:check` dobio `--memory-limit=1G` — lokalni PHP limit
+   od 128M ruši PHPStan i na nepromenjenom `main`-u (okruženje, ne kod).
+8. D-032 dodat; `docs/ETORO_API_CAPABILITIES.md` Run #3 dodat.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1395 total, 1391 passed, 4 skipped, 4881
+  assertions, 1 poznato nepovezano upozorenje.
+- `composer lint:check`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Tačno jedan live eToro GET (odobren); bez `.env` čitanja; bez pristupa
+bazi; nijedan username, request payload ili pojedinačna vrednost iz live
+odgovora nije zapisan u repozitorijum (request ID iz sanitizovanog
+doctor izlaza nije prenesen u dokumentaciju).
+
+### Sledeće
+
+Checkpoint B — čisti kalkulatori u `App\Analytics` (v2 mapper + prinos,
+drawdown, konzistentnost) nad sintetičkim fixture-om. `daily`
+granularnost čeka odobrenje za live probu.
+
+## 2026-10-05 — Milestone 3, Checkpoint B i C: kalkulatori, persistence, queued sync
+
+### Checkpoint B (commit `a0da588`)
+
+- `App\Analytics`: `ReturnSeries`/`PeriodReturn`/`ReturnPeriodGranularity`,
+  `ReturnMath` (BCMath 18 decimala, half-up na ppb), i tri kalkulatora:
+  `PerformanceCalculator` (složeni prinos, equity, trailing 12/24,
+  prosek/medijana), `DrawdownCalculator` (max drawdown, peak/trough/
+  recovery), `ConsistencyCalculator` (pozitivni/negativni/ravni, streak-ovi,
+  volatilnost n−1 i ×√12, najbolji/najgori, prinos bez najboljeg/3
+  najbolja). Sve formule testirane ručno izračunatim vrednostima (nezavisno
+  potvrđeno Python `Decimal`-om).
+- `App\Etoro`: `GainHistoryMapper` (fail closed na granularity mismatch,
+  duplikate, lenient datume, gain ≤ −100%), `GainHistoryReturnSeriesAdapter`
+  (partial start / in progress u UTC), `Percentage::fromDecimalFraction`
+  (BCMath, bez float množenja).
+- Nezavisan code review (subagent): bez materijalnih grešaka; tri sitna
+  nalaza ispravljena uz regresione testove (drawdown recovery pri
+  18-cifrenom truncation-u, float množenje, gain ≤ −100% u mapperu).
+- D-033.
+
+### Checkpoint C
+
+- Migracija `performance_points` + `traders.performance_synced_at`/
+  `performance_visibility`; modeli `PerformancePoint`,
+  `PerformanceVisibility`; factory.
+- `SyncTraderPerformance` use case, `SyncTraderPerformanceJob`
+  (unique, rate-limited, retry samo za privremene greške),
+  `etoro:sync-performance` komanda, deljeni `etoro-api` rate limiter,
+  scheduler 03:00 UTC za watched trader-e.
+- D-034; README sekcija.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1513 total, 1509 passed, 4 skipped, 5429
+  assertions, 1 poznato nepovezano upozorenje.
+- `composer lint:check`: passed. `composer types:check`: 0 errors.
+- Migracija testirana samo na SQLite (`:memory:`); MySQL 8.4 nije
+  pokretan (development baza nije dirana).
+
+### Bezbednost
+
+Bez novih live eToro poziva u B i C; bez `.env`; bez pristupa razvojnoj
+bazi.
+
+### Sledeće
+
+Checkpoint D — Filament: performance sekcija na stranici tradera
+(grafikoni equity/drawdown, tabela mesečnih prinosa, eksplicitna
+granularnost i period) i akcija „Sync performance“ koja šalje job u
+queue.
+
+## 2026-10-05 — Milestone 3, Checkpoint C2 i D: dnevna serija i UI
+
+### C2 (commit na grani, D-035)
+
+- Live poziv 2/10 iz dnevnog pool-a: v2 `gain/daily?count=1000` → 200,
+  1001 uzastopan kalendarski dan, ista šema/jedinice. Sync sada povlači
+  mesečnu pa dnevnu seriju; zamena serije samo unutar vraćenog opsega
+  (stariji dnevni podaci se čuvaju). Sintetički `gain-history-daily.json`
+  (leakage scan: 0 preklapanja).
+
+### D (D-036)
+
+- `PeriodClassifier` (Analytics), `BuildTraderPerformanceReport` (scoped,
+  memoizovan), `QueueTraderPerformanceSync`, `PercentageDisplay`.
+- `ViewTrader`: sekcije performance sync/monthly/daily, akcija „Sync
+  performance“, widget-i equity/drawdown/mesečna tabela.
+- Testovi: Filament view (ručno proverljive brojke iz referentne serije:
+  +15.50 %, +4.00 %, 60 % pozitivnih, 16.36 % / 56.66 % volatilnost,
+  20.00 % mesečni drawdown sa peak/trough/recovery), widget-i, akcija sa
+  `Queue::fake()`, nema HTTP-a pri renderovanju.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1538 total, 1534 passed, 4 skipped,
+  1 poznato nepovezano upozorenje. PHPStan 0, Pint passed, `npm run build`
+  OK.

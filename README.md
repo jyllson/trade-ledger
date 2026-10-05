@@ -109,6 +109,23 @@ non-zero exit code — see `docs/DECISIONS.md` D-027. The same flow is also
 available as the
 "Run discovery" action on `/admin/discover-traders`.
 
+### Performance history sync (queued, real eToro GET requests)
+
+```bash
+php artisan etoro:sync-performance <username>      # queue one stored trader
+php artisan etoro:sync-performance --watched       # queue every watched trader
+php artisan etoro:sync-performance <username> --now  # run in this process
+php artisan queue:work                             # process queued syncs
+```
+
+Each sync makes two read-only GETs — the trader's monthly and daily gain
+series (`/api/v2/portfolios/{username}/gain/{monthly,daily}`) — stored in
+`performance_points` and recorded as a `performance` `ImportRun`. Queued
+jobs share one `etoro-api` rate limiter (`ETORO_REQUESTS_PER_MINUTE`). A
+daily 03:00 UTC `--watched` sync is scheduled; it only runs if
+`php artisan schedule:run` is triggered every minute (cron) and a queue
+worker is running. See `docs/DECISIONS.md` D-032–D-035.
+
 ## Testing
 
 ```bash

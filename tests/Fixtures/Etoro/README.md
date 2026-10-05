@@ -20,6 +20,17 @@ scaling, or otherwise deriving from any real captured API response.
   (`trader_001`).
 - `performance-history.json` — 24 synthetic monthly + 3 synthetic yearly
   performance records.
+- `gain-history-monthly.json` — synthetic v2 gain time-series
+  (`GET /api/v2/portfolios/{username}/gain/monthly`): 26 monthly points,
+  gains as decimal fractions with 4 decimals, a partial first month
+  (start date not on the 1st), and a `totalGain` equal to the compounded
+  series (to 6 decimals). Shape and conventions match the live probe of
+  2026-10-05 (see `docs/DECISIONS.md` D-032); all values, dates, and the
+  username are hand-authored and passed a leakage scan against the raw
+  capture.
+- `gain-history-daily.json` — synthetic v2 daily series: 14 consecutive
+  calendar days (weekends included, as zero gains), same conventions as
+  the monthly file (D-035); leakage-scanned against the raw capture.
 - `live-portfolio.json` — 16 synthetic positions across 6 synthetic
   instruments.
 
@@ -52,6 +63,11 @@ scaling, or otherwise deriving from any real captured API response.
   vice versa — they were authored independently to exercise ordering,
   gaps, and sign variation at each granularity separately, not to satisfy
   a monthly→yearly compounding relationship.
+- **`performance-history.json` gain values are NOT unit-faithful.** The
+  real v1 `/gain` endpoint returns percentage points (e.g. `3.3` = 3.3%);
+  this fixture's small values (e.g. `0.021`) only exercise mapping and
+  ordering. Never build calculations on v1 values — use the v2 series
+  (`gain-history-monthly.json`, D-032).
 - **These are not a complete or representative sample of any real
   portfolio's composition.** Position counts, instrument counts, and
   weight distributions are chosen for test coverage, not to mirror any

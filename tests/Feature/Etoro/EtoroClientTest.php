@@ -6,6 +6,7 @@ use App\Etoro\EtoroErrorCategory;
 use App\Etoro\Exceptions\EtoroConfigurationException;
 use App\Etoro\Exceptions\EtoroRequestException;
 use App\Etoro\Exceptions\EtoroUnexpectedResponseException;
+use App\Etoro\GainGranularity;
 use App\Etoro\RankingQuery;
 use GuzzleHttp\Exception\ConnectException as GuzzleConnectException;
 use GuzzleHttp\Psr7\Request as GuzzleRequest;
@@ -65,6 +66,7 @@ it('never sends any HTTP verb other than GET across all typed methods', function
     $client->rankings(new RankingQuery(period: 'CurrMonth'));
     $client->userProfile('someuser');
     $client->userPerformance('someuser');
+    $client->userGainHistory('someuser', GainGranularity::Daily, 10);
     $client->userLivePortfolio('someuser');
     $client->accountPnl(EtoroEnvironment::Real);
     $client->accountPnl(EtoroEnvironment::Demo);
@@ -89,6 +91,75 @@ it('builds the documented path for each typed method', function () {
         ->toContain('https://public-api.etoro.com/api/v1/user-info/people/demo_trader/portfolio/live')
         ->toContain('https://public-api.etoro.com/api/v1/trading/info/real/pnl')
         ->toContain('https://public-api.etoro.com/api/v1/trading/info/demo/pnl');
+});
+
+it('builds the documented v2 gain time-series path for each granularity', function (GainGranularity $granularity) {
+    Http::fake(['*' => Http::response(['username' => 'demo_trader', 'granularity' => $granularity->value, 'gains' => []], 200)]);
+
+    app(EtoroClient::class)->userGainHistory('demo_trader', $granularity);
+
+    Http::assertSent(fn (Request $request) => $request->method() === 'GET'
+        && $request->url() === "https://public-api.etoro.com/api/v2/portfolios/demo_trader/gain/{$granularity->value}");
+})->with(GainGranularity::cases());
+
+it('sends the optional gain time-series count as a query parameter', function () {
+    Http::fake(['*' => Http::response(['gains' => []], 200)]);
+
+    app(EtoroClient::class)->userGainHistory('demo_trader', GainGranularity::Monthly, 1000);
+
+    Http::assertSent(fn (Request $request) => $request->url() === 'https://public-api.etoro.com/api/v2/portfolios/demo_trader/gain/monthly?count=1000');
+});
+
+it('rejects a gain time-series count outside the documented 1..1000 range without sending a request', function (int $count) {
+    Http::fake();
+
+    expect(fn () => app(EtoroClient::class)->userGainHistory('demo_trader', GainGranularity::Daily, $count))
+        ->toThrow(InvalidArgumentException::class);
+
+    Http::assertNothingSent();
+})->with([0, -1, 1001]);
+
+it('URL-encodes the username as a single path segment for the gain time-series', function () {
+    Http::fake(['*' => Http::response(['gains' => []], 200)]);
+
+    app(EtoroClient::class)->userGainHistory('evil/user?x=1', GainGranularity::Monthly);
+
+    Http::assertSent(fn (Request $request) => $request->url() === 'https://public-api.etoro.com/api/v2/portfolios/'.rawurlencode('evil/user?x=1').'/gain/monthly');
+});
+
+it('captures the documented unprefixed RateLimit-* headers', function () {
+    Http::fake(['*' => Http::response(['ok' => true], 200, [
+        'RateLimit-Limit' => '60',
+        'RateLimit-Remaining' => '59',
+        'RateLimit-Reset' => '42',
+        'RateLimit-Policy' => '60;w=60',
+    ])]);
+
+    $response = app(EtoroClient::class)->authenticatedUser();
+
+    expect($response->rateLimitHeaders)->toBe([
+        'RateLimit-Limit' => '60',
+        'RateLimit-Remaining' => '59',
+        'RateLimit-Reset' => '42',
+        'RateLimit-Policy' => '60;w=60',
+    ]);
+});
+
+it('falls back to the unprefixed RateLimit-* headers on a 429 exception', function () {
+    Http::fake(['*' => Http::response(['error' => 'slow down'], 429, [
+        'Retry-After' => '30',
+        'RateLimit-Limit' => '60',
+        'RateLimit-Remaining' => '0',
+    ])]);
+
+    try {
+        app(EtoroClient::class)->authenticatedUser();
+        $this->fail('Expected EtoroRequestException to be thrown.');
+    } catch (EtoroRequestException $exception) {
+        expect($exception->retryAfterSeconds)->toBe(30)
+            ->and($exception->rateLimitLimit)->toBe('60')
+            ->and($exception->rateLimitRemaining)->toBe('0');
+    }
 });
 
 it('sends the usernames query parameter as a plain scalar value, matching the documented explode=false array serialization', function () {
@@ -429,4 +500,13 @@ it('captures rate-limit headers when present', function () {
         'X-RateLimit-Limit' => '45',
         'X-RateLimit-Remaining' => '44',
     ]);
+});
+
+it('rejects a blank username for the gain time-series without sending a request', function () {
+    Http::fake();
+
+    expect(fn () => app(EtoroClient::class)->userGainHistory('   ', GainGranularity::Monthly))
+        ->toThrow(InvalidArgumentException::class);
+
+    Http::assertNothingSent();
 });
