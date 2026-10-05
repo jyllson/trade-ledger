@@ -126,6 +126,25 @@ daily 03:00 UTC `--watched` sync is scheduled; it only runs if
 `php artisan schedule:run` is triggered every minute (cron) and a queue
 worker is running. See `docs/DECISIONS.md` D-032–D-035.
 
+### Background services on macOS (launchd)
+
+Two user LaunchAgents keep the queue worker and the scheduler running
+(copies in `ops/launchd/`, paths are machine-specific):
+
+- `com.tradeledger.queue-worker` — `php artisan queue:work --tries=1 --max-time=3600`
+  (restarts hourly, so new code is picked up);
+- `com.tradeledger.scheduler` — `php artisan schedule:work`.
+
+Both use the app's normal `.env` (i.e. the development database and the
+configured eToro credentials). Logs: `storage/logs/launchd-*.log`.
+
+```bash
+launchctl list | grep tradeledger                                   # status
+launchctl kickstart -k gui/$(id -u)/com.tradeledger.queue-worker      # restart
+launchctl bootout gui/$(id -u)/com.tradeledger.scheduler              # stop
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tradeledger.scheduler.plist  # start
+```
+
 ## Testing
 
 ```bash

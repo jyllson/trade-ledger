@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.tradeledger.queue-worker</string>
+    <key>WorkingDirectory</key><string>/Users/jyllson/repos/tradelytics</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/php</string>
+        <string>artisan</string>
+        <string>queue:work</string>
+        <string>--sleep=5</string>
+        <string>--tries=1</string>
+        <string>--max-time=3600</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>30</integer>
+    <key>StandardOutPath</key><string>/Users/jyllson/repos/tradelytics/storage/logs/launchd-queue-worker.log</string>
+    <key>StandardErrorPath</key><string>/Users/jyllson/repos/tradelytics/storage/logs/launchd-queue-worker.log</string>
+</dict>
+</plist>
