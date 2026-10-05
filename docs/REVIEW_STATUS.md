@@ -10,9 +10,9 @@ detalj. Sledeći product
 milestone po `PROJECT.md` §20 je **Milestone 3 (performance analytics)** —
 vlasnik ga je izabrao kao sledeći (2026-10-05); **u toku** na grani
 `codex/milestone-3-performance-analytics` — Checkpoint A (izvor podataka
-i jedinice, D-032), B (kalkulatori, D-033) i C (persistence + queued
-sync, D-034) završeni lokalno (nije push-ovano); sledi Checkpoint D
-(Filament UI).
+i jedinice, D-032), B (kalkulatori, D-033), C/C2 (persistence + queued
+monthly/daily sync, D-034/D-035) i D (Filament UI, D-036) završeni;
+sledi zatvaranje M3 (acceptance + PR/merge).
 **Post-merge zapis:** Checkpoint K closeout je mergovan u `main` kao
 PR #7 (<https://github.com/jyllson/trade-ledger/pull/7>, merge SHA
 `9bf63be`, mergedAt `2026-08-24T08:33:36Z`, CI `ci` SUCCESS) — vidi

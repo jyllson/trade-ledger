@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Application\Traders\BuildTraderPerformanceReport;
 use App\Etoro\EtoroWriteGuard;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -18,7 +19,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Request-scoped so the trader view page and its widgets share one
+        // memoized report per request (and queue workers start fresh).
+        $this->app->scoped(BuildTraderPerformanceReport::class);
     }
 
     /**

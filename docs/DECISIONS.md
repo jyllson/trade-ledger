@@ -1379,3 +1379,36 @@ današnji dan.
 - Novi sintetički fixture `tests/Fixtures/Etoro/gain-history-daily.json`
   (14 uzastopnih dana, vikend nule); leakage scan protiv raw snimka: 0
   preklapanja.
+
+## D-036: Performance UI na stranici tradera
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 3, Checkpoint D)
+
+**Odluka:**
+
+- `App\Application\Traders\BuildTraderPerformanceReport` gradi read model
+  isključivo iz SAČUVANIH `performance_points` (nikad HTTP pri
+  renderovanju — nastavak D-031). Partial-start/in-progress izvodi
+  `App\Analytics\Support\PeriodClassifier` (jedino mesto te logike; koristi
+  ga i `GainHistoryReturnSeriesAdapter`), sa `asOf` = najnoviji
+  `synced_at` serije. Registrovan kao `scoped` singleton i memoizuje
+  izveštaj po trader-u/sync timestamp-u, jer ga infolist i tri widget-a
+  čitaju u istom zahtevu.
+- `ViewTrader`: sekcije „Performance sync“ (vidljivost, poslednji uspešan
+  sync), „Performance — monthly“ i „Performance — daily“ (sakrivene dok
+  nema podataka); svaka brojka nosi granularnost i posmatrani period;
+  delimični/tekući periodi su eksplicitno označeni; mesečni max drawdown
+  je eksplicitno „not intraday“. Footer widget-i: mesečni equity index,
+  drawdown kriva (dnevna kad postoji, inače mesečna — naslov kaže koja) i
+  tabela mesečnih prinosa godina × mesec.
+- Akcija „Sync performance“ ide isključivo kroz
+  `App\Application\Traders\QueueTraderPerformanceSync` (Filament ne sme da
+  dispatch-uje direktno — D-031 arch test); kad je integracija
+  isključena, ništa se ne queue-uje. Komanda `etoro:sync-performance`
+  koristi isti use case.
+- Formatiranje: `App\Filament\Support\PercentageDisplay` — BCMath, half
+  away from zero; float samo za Chart.js ose (prezentacija).
+- Panel nema sopstvenu Filament temu, pa custom Blade koristi inline
+  stilove sa Filament CSS varijablama boja (`--success-600`,
+  `--danger-600`) umesto nekompajliranih Tailwind klasa.

@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Application\Traders\FindStoredTraderByUsername;
+use App\Application\Traders\QueueTraderPerformanceSync;
 use App\Application\Traders\SyncTraderPerformance;
 use App\Application\Traders\SyncTraderPerformanceStopReason;
 use App\Application\Traders\TraderUsername;
 use App\Etoro\GainGranularity;
-use App\Jobs\SyncTraderPerformanceJob;
 use App\Models\Trader;
 use App\Models\TraderStatus;
 use Illuminate\Console\Command;
@@ -32,6 +32,7 @@ final class EtoroSyncPerformanceCommand extends Command
     public function __construct(
         private readonly FindStoredTraderByUsername $findStoredTraderByUsername,
         private readonly SyncTraderPerformance $syncTraderPerformance,
+        private readonly QueueTraderPerformanceSync $queueTraderPerformanceSync,
     ) {
         parent::__construct();
     }
@@ -104,7 +105,7 @@ final class EtoroSyncPerformanceCommand extends Command
     private function queue(array $traders): int
     {
         foreach ($traders as $trader) {
-            SyncTraderPerformanceJob::dispatch($trader);
+            $this->queueTraderPerformanceSync->handle($trader);
         }
 
         $this->components->info(sprintf('Queued performance sync for %d trader(s). A queue worker must be running (php artisan queue:work).', count($traders)));

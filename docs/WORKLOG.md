@@ -1610,3 +1610,30 @@ Checkpoint D — Filament: performance sekcija na stranici tradera
 (grafikoni equity/drawdown, tabela mesečnih prinosa, eksplicitna
 granularnost i period) i akcija „Sync performance“ koja šalje job u
 queue.
+
+## 2026-10-05 — Milestone 3, Checkpoint C2 i D: dnevna serija i UI
+
+### C2 (commit na grani, D-035)
+
+- Live poziv 2/10 iz dnevnog pool-a: v2 `gain/daily?count=1000` → 200,
+  1001 uzastopan kalendarski dan, ista šema/jedinice. Sync sada povlači
+  mesečnu pa dnevnu seriju; zamena serije samo unutar vraćenog opsega
+  (stariji dnevni podaci se čuvaju). Sintetički `gain-history-daily.json`
+  (leakage scan: 0 preklapanja).
+
+### D (D-036)
+
+- `PeriodClassifier` (Analytics), `BuildTraderPerformanceReport` (scoped,
+  memoizovan), `QueueTraderPerformanceSync`, `PercentageDisplay`.
+- `ViewTrader`: sekcije performance sync/monthly/daily, akcija „Sync
+  performance“, widget-i equity/drawdown/mesečna tabela.
+- Testovi: Filament view (ručno proverljive brojke iz referentne serije:
+  +15.50 %, +4.00 %, 60 % pozitivnih, 16.36 % / 56.66 % volatilnost,
+  20.00 % mesečni drawdown sa peak/trough/recovery), widget-i, akcija sa
+  `Queue::fake()`, nema HTTP-a pri renderovanju.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1538 total, 1534 passed, 4 skipped,
+  1 poznato nepovezano upozorenje. PHPStan 0, Pint passed, `npm run build`
+  OK.
