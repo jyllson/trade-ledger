@@ -8,6 +8,7 @@ use Database\Factories\TraderFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -26,6 +27,8 @@ use Illuminate\Support\Carbon;
  * @property int|null $profile_country_code
  * @property string|null $profile_language_iso_code
  * @property Carbon|null $profile_synced_at
+ * @property Carbon|null $performance_synced_at
+ * @property PerformanceVisibility|null $performance_visibility
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -44,6 +47,8 @@ use Illuminate\Support\Carbon;
     'profile_country_code',
     'profile_language_iso_code',
     'profile_synced_at',
+    'performance_synced_at',
+    'performance_visibility',
 ])]
 class Trader extends Model
 {
@@ -64,6 +69,16 @@ class Trader extends Model
             'profile_is_verified' => 'boolean',
             'profile_country_code' => 'integer',
             'profile_synced_at' => 'datetime',
+            'performance_synced_at' => 'datetime',
+            'performance_visibility' => PerformanceVisibility::class,
         ];
+    }
+
+    /**
+     * @return HasMany<PerformancePoint, $this>
+     */
+    public function performancePoints(): HasMany
+    {
+        return $this->hasMany(PerformancePoint::class);
     }
 }

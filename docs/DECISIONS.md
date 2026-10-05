@@ -1295,3 +1295,48 @@ snimljen 2026-07-31. Upoređeni su isključivo agregatni brojevi:
 - v2 `totalGain` se čuva samo radi unakrsne provere; aplikacija sama
   računa složeni prinos (fixture pipeline test dokazuje slaganje unutar
   zaokruživanja API-ja).
+
+## D-034: Performance persistence i queued sinhronizacija
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 3, Checkpoint C; vlasnik odlučio: queued
+jobs odmah)
+
+**Odluka:**
+
+- Tabela `performance_points`: `trader_id` (FK, cascade), `granularity`,
+  `period_start` (DATE, datum iz API-ja), `gain_ppb` (signed BIGINT, tačan
+  decimalni udeo u ppb — isto kao `Percentage`; bez DECIMAL/float), `source`
+  (`etoro_v2_gain`), `synced_at`; unique
+  `(trader_id, granularity, period_start, source)` (PROJECT.md §11/§16).
+  `period_start` namerno NIJE Eloquent date cast — svi upisi čuvaju isti
+  `Y-m-d` string (SQLite bi inače dobio i vreme).
+- Partial-start/in-progress se NE čuvaju — izvode se iz `period_start` i
+  `synced_at` (D-032/D-033), da se ne bi zastareli.
+- `traders.performance_synced_at` (poslednji USPEŠAN sync) i
+  `traders.performance_visibility` (`available|private|not_found`).
+- `App\Application\Traders\SyncTraderPerformance`: jedan `performance`
+  `ImportRun` po pozivu, kreiran pre HTTP poziva; poziva samo
+  `EtoroClient::userGainHistory(monthly, 1000)`; zahteva tačno isti
+  username u odgovoru; sačuvana mesečna serija se **zamenjuje** odgovorom
+  (upsert + brisanje perioda koji više nisu vraćeni) u istoj transakciji
+  sa finalize-om ImportRun-a → idempotentno.
+- Ishodi: 403 → `not_visible` + `private` (postojeća istorija se čuva,
+  bez retry-ja); 404 → `not_found`; 429/5xx/transport →
+  `temporarily_unavailable` (jedini retryable, nosi Retry-After);
+  mapping/granularity/identity greške → fail closed, ništa se ne upisuje.
+  `error_summary` je statičan tekst.
+- `App\Jobs\SyncTraderPerformanceJob`: `ShouldBeUnique` po trader-u (1h),
+  `RateLimited('etoro-api')` middleware, `retryUntil` 6h (rate-limit
+  release-ovi se broje kao pokušaji), release samo za retryable ishod
+  (Retry-After ili 60 s × pokušaj, max 900 s). Rate limiter `etoro-api` =
+  `ETORO_REQUESTS_PER_MINUTE`/min, deljen za sve eToro job-ove (eToro
+  default kvota je deljena između endpointa).
+- `php artisan etoro:sync-performance {username?} {--watched} {--now}`:
+  podrazumevano queue-uje; `--now` izvršava sinhrono i prikazuje samo
+  trader ID, ishod, broj tačaka i ImportRun ID. Nikad ne kreira Trader.
+  Kad je integracija isključena, ništa ne queue-uje.
+- Scheduler: `etoro:sync-performance --watched` dnevno u 03:00 UTC
+  (PROJECT.md §16), `withoutOverlapping`. Radi samo uz `schedule:run`
+  cron i aktivan queue worker.
+- Samo mesečna granularnost; dnevna čeka live potvrdu (D-032 tačka 6).

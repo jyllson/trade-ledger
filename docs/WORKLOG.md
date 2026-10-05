@@ -1558,3 +1558,55 @@ doctor izlaza nije prenesen u dokumentaciju).
 Checkpoint B — čisti kalkulatori u `App\Analytics` (v2 mapper + prinos,
 drawdown, konzistentnost) nad sintetičkim fixture-om. `daily`
 granularnost čeka odobrenje za live probu.
+
+## 2026-10-05 — Milestone 3, Checkpoint B i C: kalkulatori, persistence, queued sync
+
+### Checkpoint B (commit `a0da588`)
+
+- `App\Analytics`: `ReturnSeries`/`PeriodReturn`/`ReturnPeriodGranularity`,
+  `ReturnMath` (BCMath 18 decimala, half-up na ppb), i tri kalkulatora:
+  `PerformanceCalculator` (složeni prinos, equity, trailing 12/24,
+  prosek/medijana), `DrawdownCalculator` (max drawdown, peak/trough/
+  recovery), `ConsistencyCalculator` (pozitivni/negativni/ravni, streak-ovi,
+  volatilnost n−1 i ×√12, najbolji/najgori, prinos bez najboljeg/3
+  najbolja). Sve formule testirane ručno izračunatim vrednostima (nezavisno
+  potvrđeno Python `Decimal`-om).
+- `App\Etoro`: `GainHistoryMapper` (fail closed na granularity mismatch,
+  duplikate, lenient datume, gain ≤ −100%), `GainHistoryReturnSeriesAdapter`
+  (partial start / in progress u UTC), `Percentage::fromDecimalFraction`
+  (BCMath, bez float množenja).
+- Nezavisan code review (subagent): bez materijalnih grešaka; tri sitna
+  nalaza ispravljena uz regresione testove (drawdown recovery pri
+  18-cifrenom truncation-u, float množenje, gain ≤ −100% u mapperu).
+- D-033.
+
+### Checkpoint C
+
+- Migracija `performance_points` + `traders.performance_synced_at`/
+  `performance_visibility`; modeli `PerformancePoint`,
+  `PerformanceVisibility`; factory.
+- `SyncTraderPerformance` use case, `SyncTraderPerformanceJob`
+  (unique, rate-limited, retry samo za privremene greške),
+  `etoro:sync-performance` komanda, deljeni `etoro-api` rate limiter,
+  scheduler 03:00 UTC za watched trader-e.
+- D-034; README sekcija.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1513 total, 1509 passed, 4 skipped, 5429
+  assertions, 1 poznato nepovezano upozorenje.
+- `composer lint:check`: passed. `composer types:check`: 0 errors.
+- Migracija testirana samo na SQLite (`:memory:`); MySQL 8.4 nije
+  pokretan (development baza nije dirana).
+
+### Bezbednost
+
+Bez novih live eToro poziva u B i C; bez `.env`; bez pristupa razvojnoj
+bazi.
+
+### Sledeće
+
+Checkpoint D — Filament: performance sekcija na stranici tradera
+(grafikoni equity/drawdown, tabela mesečnih prinosa, eksplicitna
+granularnost i period) i akcija „Sync performance“ koja šalje job u
+queue.
