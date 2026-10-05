@@ -150,7 +150,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tradeledger.schedule
 ```bash
 php artisan test
 vendor/bin/pint
-vendor/bin/phpstan analyse
+composer types:check
 ```
 
 The default/local/CI suite runs against an isolated SQLite `:memory:`
