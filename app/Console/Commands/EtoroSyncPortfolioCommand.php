@@ -5,34 +5,33 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Application\Traders\FindStoredTraderByUsername;
-use App\Application\Traders\QueueTraderPerformanceSync;
-use App\Application\Traders\SyncTraderPerformance;
-use App\Application\Traders\SyncTraderPerformanceStopReason;
+use App\Application\Traders\QueueTraderPortfolioSync;
+use App\Application\Traders\SyncTraderPortfolio;
+use App\Application\Traders\SyncTraderPortfolioStopReason;
 use App\Application\Traders\TraderUsername;
-use App\Etoro\GainGranularity;
 use App\Models\Trader;
 use App\Models\TraderStatus;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
 
 /**
- * Queues (default) or runs (--now) a read-only performance sync for one
- * stored trader or for every watched trader (docs/DECISIONS.md D-034).
- * Never creates a Trader and never prints gain values.
+ * Queues (default) or runs (--now) a read-only live portfolio import for one
+ * stored trader or for every watched trader (docs/DECISIONS.md D-038).
+ * Never creates a Trader and never prints positions, weights, or instruments.
  */
-final class EtoroSyncPerformanceCommand extends Command
+final class EtoroSyncPortfolioCommand extends Command
 {
-    protected $signature = 'etoro:sync-performance
+    protected $signature = 'etoro:sync-portfolio
         {username? : Username of an already stored trader}
         {--watched : Sync every trader with status "watched"}
         {--now : Run synchronously in this process instead of queueing}';
 
-    protected $description = 'Sync monthly and daily performance history for stored eToro traders (read-only; queued by default).';
+    protected $description = 'Import the live portfolio snapshot for stored eToro traders (read-only; queued by default).';
 
     public function __construct(
         private readonly FindStoredTraderByUsername $findStoredTraderByUsername,
-        private readonly SyncTraderPerformance $syncTraderPerformance,
-        private readonly QueueTraderPerformanceSync $queueTraderPerformanceSync,
+        private readonly SyncTraderPortfolio $syncTraderPortfolio,
+        private readonly QueueTraderPortfolioSync $queueTraderPortfolioSync,
     ) {
         parent::__construct();
     }
@@ -105,10 +104,10 @@ final class EtoroSyncPerformanceCommand extends Command
     private function queue(array $traders): int
     {
         foreach ($traders as $trader) {
-            $this->queueTraderPerformanceSync->handle($trader);
+            $this->queueTraderPortfolioSync->handle($trader);
         }
 
-        $this->components->info(sprintf('Queued performance sync for %d trader(s). A queue worker must be running (php artisan queue:work).', count($traders)));
+        $this->components->info(sprintf('Queued portfolio sync for %d trader(s). A queue worker must be running (php artisan queue:work).', count($traders)));
 
         return self::SUCCESS;
     }
@@ -123,21 +122,21 @@ final class EtoroSyncPerformanceCommand extends Command
         $rows = [];
 
         foreach ($traders as $trader) {
-            foreach ([GainGranularity::Monthly, GainGranularity::Daily] as $granularity) {
-                $result = $this->syncTraderPerformance->handle($trader, $granularity);
-                $completed = $result->stopReason === SyncTraderPerformanceStopReason::Completed;
-                $failures += $completed ? 0 : 1;
-                $retryable += $result->stopReason->isRetryable() ? 1 : 0;
+            $result = $this->syncTraderPortfolio->handle($trader);
+            $failures += $result->stopReason === SyncTraderPortfolioStopReason::Completed ? 0 : 1;
+            $retryable += $result->stopReason->isRetryable() ? 1 : 0;
 
-                $rows[] = [$trader->id, $granularity->value, $result->stopReason->value, $result->storedPointCount, $result->importRun->id];
-
-                if (! $completed) {
-                    break;
-                }
-            }
+            $rows[] = [
+                $trader->id,
+                $result->stopReason->value,
+                $result->snapshot === null ? '-' : ($result->snapshotCreated ? 'new #'.$result->snapshot->id : 'unchanged #'.$result->snapshot->id),
+                $result->snapshot->position_count ?? 0,
+                $result->enrichment->status->value ?? '-',
+                $result->importRun->id,
+            ];
         }
 
-        $this->table(['Trader ID', 'Granularity', 'Result', 'Stored points', 'Import run'], $rows);
+        $this->table(['Trader ID', 'Result', 'Snapshot', 'Positions', 'Instrument metadata', 'Import run'], $rows);
 
         if ($retryable > 0) {
             $this->components->warn('Temporarily unavailable (eToro or the local request budget, D-039): nothing waited. Re-run later, or queue the sync instead of --now.');

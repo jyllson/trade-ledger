@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Application\Imports\FailInterruptedImportRuns;
-use App\Application\Traders\SyncTraderPerformance;
-use App\Application\Traders\SyncTraderPerformanceStopReason;
-use App\Etoro\GainGranularity;
+use App\Application\Traders\SyncTraderPortfolio;
 use App\Models\Trader;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -18,21 +16,20 @@ use Illuminate\Support\Carbon;
 use Throwable;
 
 /**
- * Queued wrapper around SyncTraderPerformance (docs/DECISIONS.md D-034).
+ * Queued wrapper around SyncTraderPortfolio (docs/DECISIONS.md D-038), same
+ * contract as SyncTraderPerformanceJob (D-034):
  *
- * - No job-level rate limiter: the eToro transport spends one `etoro-api`
- *   permit (ETORO_REQUESTS_PER_MINUTE) per HTTP attempt (D-039), so queued
- *   and synchronous runs share one budget; a locally exhausted budget
- *   surfaces as a retryable outcome and releases the job.
- * - Unique per trader while queued: re-dispatching the same trader is a
- *   no-op until the pending job runs.
- * - Only a TemporarilyUnavailable outcome (429/5xx/transport) is released
- *   for a later attempt, honouring Retry-After; a private/not-found/mapping
- *   outcome is final and already recorded in its ImportRun.
+ * - No job-level rate limiter: the eToro transport spends one `etoro-api` /
+ *   `etoro-market-data` permit per HTTP attempt (D-039); a locally
+ *   exhausted budget surfaces as a retryable outcome and releases the job.
+ * - Unique per trader while queued.
+ * - Only a TemporarilyUnavailable outcome of the portfolio request is
+ *   released for a later attempt, honouring Retry-After. Incomplete
+ *   instrument metadata is not retried here — the next import asks again.
  * - Bounded by $timeout (D-040); a killed attempt's still-`running`
- *   ImportRuns are closed as `failed` by failed() or the next attempt.
+ *   ImportRun is closed as `failed` by failed() or the next attempt.
  */
-final class SyncTraderPerformanceJob implements ShouldBeUnique, ShouldQueue
+final class SyncTraderPortfolioJob implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
@@ -72,36 +69,22 @@ final class SyncTraderPerformanceJob implements ShouldBeUnique, ShouldQueue
         return Carbon::now()->addHours(self::RETRY_WINDOW_HOURS);
     }
 
-    /**
-     * Monthly first, then daily (D-035). Each granularity is its own
-     * idempotent sync with its own ImportRun; if either is temporarily
-     * unavailable the whole job is released and both re-run later. A final
-     * outcome (e.g. private) for monthly skips the daily request.
-     */
-    public function handle(SyncTraderPerformance $syncTraderPerformance, FailInterruptedImportRuns $failInterruptedImportRuns): void
+    public function handle(SyncTraderPortfolio $syncTraderPortfolio, FailInterruptedImportRuns $failInterruptedImportRuns): void
     {
         $queueJobUuid = $this->job?->uuid();
 
         if ($queueJobUuid !== null) {
             // Runs a previous, hard-killed attempt of this job left `running`.
-            $failInterruptedImportRuns->handle(SyncTraderPerformance::TYPE, $queueJobUuid, 'attempt_interrupted');
+            $failInterruptedImportRuns->handle(SyncTraderPortfolio::TYPE, $queueJobUuid, 'attempt_interrupted');
         }
 
-        foreach ([GainGranularity::Monthly, GainGranularity::Daily] as $granularity) {
-            $result = $syncTraderPerformance->handle($this->trader, $granularity, $queueJobUuid);
+        $result = $syncTraderPortfolio->handle($this->trader, $queueJobUuid);
 
-            if ($result->stopReason->isRetryable()) {
-                $this->release(min(
-                    max($result->retryAfterSeconds ?? self::DEFAULT_RETRY_SECONDS * $this->attempts(), 1),
-                    self::MAX_RETRY_SECONDS,
-                ));
-
-                return;
-            }
-
-            if ($result->stopReason !== SyncTraderPerformanceStopReason::Completed) {
-                return;
-            }
+        if ($result->stopReason->isRetryable()) {
+            $this->release(min(
+                max($result->retryAfterSeconds ?? self::DEFAULT_RETRY_SECONDS * $this->attempts(), 1),
+                self::MAX_RETRY_SECONDS,
+            ));
         }
     }
 
@@ -117,7 +100,7 @@ final class SyncTraderPerformanceJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        app(FailInterruptedImportRuns::class)->handle(SyncTraderPerformance::TYPE, $queueJobUuid, match (true) {
+        app(FailInterruptedImportRuns::class)->handle(SyncTraderPortfolio::TYPE, $queueJobUuid, match (true) {
             $exception instanceof TimeoutExceededException => 'timeout',
             $exception instanceof MaxAttemptsExceededException => 'max_attempts',
             default => 'job_failed',

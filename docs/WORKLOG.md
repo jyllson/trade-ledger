@@ -1651,3 +1651,145 @@ queue.
   header datum, ovaj unos.
 - Privremeni QA artefakti (`/private/tmp/tradeledger-qa.sqlite`,
   `/private/tmp/tl-qa/`) ostaju van repozitorijuma.
+
+## 2026-10-05 — Milestone 4, Checkpoint B: portfolio persistence
+
+### Urađeno (D-038)
+
+- Migracije: `instruments`, `portfolio_snapshots` (+ `traders.portfolio_synced_at`,
+  `traders.portfolio_visibility`), `portfolio_positions`; težine u ppb,
+  bez `raw_payload`/`open_rate`/`net_profit`, kratka imena indeksa.
+  Modeli `Instrument`, `PortfolioSnapshot`, `PortfolioPosition` + factory-ji;
+  `Trader::portfolioSnapshots()` / `latestPortfolioSnapshot()`.
+- `App\Application\Traders\SyncTraderPortfolio` (live portfolio →
+  snapshot + pozicije u redosledu payload-a, `source_hash`, idempotentno
+  prema poslednjem snapshot-u) i `EnrichInstrumentMetadata` (best-effort,
+  batch ≤ 100, katalog tipova za asset class, osvežavanje posle 7 dana).
+- `SyncTraderPortfolioJob`, `QueueTraderPortfolioSync`,
+  `etoro:sync-portfolio {username?} {--watched} {--now}`; ImportRun tip
+  `portfolio` (`partial` kad metapodaci zakažu).
+- Scheduler unos namerno nije dodat (D-038 t. 7).
+- Testovi: importer (mapiranje, ppb/rate/redosled, idempotentnost,
+  A→B→A, šta ulazi u hash, prazan portfolio, nepoznat keš, duplikat
+  positionId, metadata neuspesi/delimični/batch/refresh, 403/404/429,
+  mapping, konfiguracija, samo GET), job, komanda, arhitektura, modeli.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1609 total, 1605 passed, 4 skipped,
+  1 poznato nepovezano upozorenje (postoji i bez ovih izmena).
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+- `php artisan migrate` na `trade_ledger` (MySQL): 3 nove migracije
+  DONE. Import sa `Http::fake` na MySQL u vraćenoj transakciji:
+  completed, idempotentan, 16 pozicija, asset class popunjen; posle
+  rollback-a 0 redova.
+
+### Bezbednost
+
+Bez live eToro poziva (pool i dalje 5/10); bez `.env`; bez novih
+paketa; nijedan write/trading poziv, `EtoroWriteGuard` netaknut.
+
+### Sledeće
+
+Checkpoint C — koncentracija i simulator iz SAČUVANOG snapshot-a;
+odluka o retenciji snapshot-a i uključivanju scheduler-a.
+
+## 2026-10-05 — Milestone 4, Checkpoint B: ispravke posle review-a
+
+### Urađeno
+
+- **Nalaz 1 (D-039):** rate limiting po HTTP pokušaju. Novi
+  `App\Etoro\EtoroRequestThrottle` (pozvan pre svakog pokušaja u
+  `EtoroClient::get()`, i za retry-je), limiteri `etoro-api` i
+  `etoro-market-data`, ograničeno blokirajuće čekanje (20 s), pa
+  `EtoroRequestException::localBudgetExhausted()` (RateLimited →
+  retryable, job release). `RateLimited` middleware uklonjen iz
+  `SyncTraderPerformanceJob` i `SyncTraderPortfolioJob`.
+- **Nalaz 2:** `EnrichInstrumentMetadata` označava instrument
+  obogaćenim samo uz validan type ID i odgovarajući unos u katalogu;
+  inače ostaje kandidat, run je `partial`. D-038 t. 5/6 dopunjene.
+- Testovi: `tests/Feature/Etoro/EtoroRequestThrottleTest.php` (N zahteva
+  = N dozvola, retry-ji se broje, zaseban market-data budžet, čekanje,
+  odbijanje bez slanja, sinhrona `--now` putanja, release oba job-a);
+  portfolio: katalog bez tipa, nedostajući/neispravan type ID (4
+  varijante), ponovni pokušaj na sledećem importu; job testovi
+  ažurirani (bez middleware-a).
+
+### Verifikacija
+
+- `php artisan test --compact`: 1623 total, 1619 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez live eToro poziva; bez `.env`/`.env.example`; bez novih paketa.
+
+## 2026-10-05 — Milestone 4, Checkpoint B: ispravke posle review-a (runda 2)
+
+### Urađeno
+
+- **Nalaz 1 (D-039 t. 3 revidirana):** `EtoroRequestThrottle::acquire()`
+  više ne čeka — bez dozvole odmah `localBudgetExhausted()` (retryable,
+  zahtev se ne šalje). Throttle ne doprinosi trajanju job-a/web zahteva;
+  ImportRun se finalizuje kao `failed`/`temporarily_unavailable`, job se
+  release-uje. `etoro:sync-performance`/`etoro:sync-portfolio --now`
+  ispisuju upozorenje „Re-run later…“ kad je bilo privremeno
+  nedostupnih. Uklonjen `etoro.rate_limit_max_wait_seconds`.
+- **Nalaz 2 (D-038 t. 5):** `EnrichInstrumentMetadata` upisuje
+  klasifikaciju (`instrument_type_id`, `asset_class`,
+  `metadata_synced_at`) kao celinu: razrešen tip → nova celina;
+  nerazrešen nepromenjen tip → prethodna celina ostaje; nerazrešen
+  promenjen/nedostajući tip → novi type ID, `asset_class` i timestamp
+  obrisani. Run `partial`.
+- **Nalaz 3:** lokalno odbijen retry nosi broj već poslatih pokušaja i
+  request ID poslednjeg (`localBudgetExhausted(..., $attemptCount,
+  $requestId)`), pa `ImportRun.request_count` nije 0.
+- Testovi: odbijanje bez čekanja/slanja (`Sleep::assertNeverSlept`),
+  503 → lokalno odbijen retry (`attemptCount` 1, `request_count` 1),
+  `--now` upozorenje i `failed` run, job-ovi bez spavanja i bez
+  `running` run-a; tri regresiona testa za refresh klasifikacije.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1627 total, 1623 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
+
+## 2026-10-05 — Milestone 4, Checkpoint B: timeout guard za sync job-ove (D-040)
+
+### Urađeno
+
+- `SyncTraderPerformanceJob`, `SyncTraderPortfolioJob`: `$timeout = 80`
+  (< `retry_after` 90 s, > worker 60 s), `$failOnTimeout = true`,
+  `failed(?Throwable)` i čišćenje run-ova prethodnog ubijenog pokušaja na
+  početku `handle()`.
+- Novi `App\Application\Imports\FailInterruptedImportRuns`: `running`
+  run-ove sa `metadata.queue_job_uuid` datog job-a zatvara kao `failed`
+  (`stop_reason = interrupted`, `interruption` = timeout / max_attempts /
+  job_failed / attempt_interrupted).
+- `SyncTraderPerformance::handle()` i `SyncTraderPortfolio::handle()`:
+  opcioni `$queueJobUuid` → `metadata.queue_job_uuid`; `TYPE` konstante
+  javne.
+- Testovi (oba job-a): `failed()` zatvara `running` run (3 vrste
+  izuzetka), ne dira završen run, run drugog job-a ni sinhroni run, bez
+  queue job-a ne radi ništa; `handle()` taguje run-ove i zatvara siroče
+  prethodnog pokušaja; `timeout < retry_after`, `failOnTimeout`; kroz
+  pravi database queue: payload nosi `timeout`/`failOnTimeout`, a
+  `Job::fail(TimeoutExceededException)` (put worker-ovog timeout
+  handler-a) zatvara run. Helper `fakeQueueJobWithUuid()` u
+  `tests/Pest.php` (plain `FakeJob` nema UUID).
+
+### Verifikacija
+
+- `php artisan test --compact`: 1643 total, 1639 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.

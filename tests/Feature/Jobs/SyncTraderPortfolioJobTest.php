@@ -1,9 +1,9 @@
 <?php
 
-use App\Jobs\SyncTraderPerformanceJob;
+use App\Jobs\SyncTraderPortfolioJob;
 use App\Models\ImportRun;
 use App\Models\ImportRunStatus;
-use App\Models\PerformancePoint;
+use App\Models\PortfolioSnapshot;
 use App\Models\Trader;
 use Illuminate\Queue\MaxAttemptsExceededException;
 use Illuminate\Queue\TimeoutExceededException;
@@ -23,37 +23,39 @@ beforeEach(function () {
     Sleep::fake();
 });
 
-it('syncs the monthly then the daily series', function () {
+it('imports the live portfolio snapshot', function () {
     Http::fake([
-        '*/gain/monthly*' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/gain-history-monthly.json')), true), 200),
-        '*/gain/daily*' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/gain-history-daily.json')), true), 200),
+        '*/portfolio/live' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/live-portfolio.json')), true), 200),
+        '*/market-data/instruments*' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/instrument-display-data.json')), true), 200),
+        '*/market-data/instrument-types' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/instrument-types.json')), true), 200),
     ]);
     $trader = Trader::factory()->create(['username' => 'trader_001']);
 
-    $job = (new SyncTraderPerformanceJob($trader))->withFakeQueueInteractions();
+    $job = (new SyncTraderPortfolioJob($trader))->withFakeQueueInteractions();
     app()->call([$job, 'handle']);
 
     $job->assertNotReleased();
-    expect(PerformancePoint::where('granularity', 'monthly')->count())->toBe(26)
-        ->and(PerformancePoint::where('granularity', 'daily')->count())->toBe(14);
+    expect(PortfolioSnapshot::where('trader_id', $trader->id)->count())->toBe(1)
+        ->and(ImportRun::where('type', 'portfolio')->count())->toBe(1);
 });
 
-it('releases the whole job when the daily request is temporarily unavailable', function () {
+it('does not release the job when only instrument metadata fails', function () {
     Http::fake([
-        '*/gain/monthly*' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/gain-history-monthly.json')), true), 200),
-        '*/gain/daily*' => Http::response([], 429, ['Retry-After' => '30']),
+        '*/portfolio/live' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/live-portfolio.json')), true), 200),
+        '*/market-data/*' => Http::response([], 429, ['Retry-After' => '30']),
     ]);
 
-    $job = (new SyncTraderPerformanceJob(Trader::factory()->create(['username' => 'trader_001'])))->withFakeQueueInteractions();
+    $job = (new SyncTraderPortfolioJob(Trader::factory()->create(['username' => 'trader_001'])))->withFakeQueueInteractions();
     app()->call([$job, 'handle']);
 
-    $job->assertReleased(delay: 30);
+    $job->assertNotReleased();
+    expect(PortfolioSnapshot::count())->toBe(1);
 });
 
-it('releases a rate-limited sync honouring Retry-After', function () {
+it('releases a rate-limited portfolio request honouring Retry-After', function () {
     Http::fake(['*' => Http::response([], 429, ['Retry-After' => '42'])]);
 
-    $job = (new SyncTraderPerformanceJob(Trader::factory()->create()))->withFakeQueueInteractions();
+    $job = (new SyncTraderPortfolioJob(Trader::factory()->create()))->withFakeQueueInteractions();
     app()->call([$job, 'handle']);
 
     $job->assertReleased(delay: 42);
@@ -62,16 +64,16 @@ it('releases a rate-limited sync honouring Retry-After', function () {
 it('falls back to a default release delay without Retry-After', function () {
     Http::fake(['*' => Http::sequence()->push([], 503)->push([], 503)->push([], 503)]);
 
-    $job = (new SyncTraderPerformanceJob(Trader::factory()->create()))->withFakeQueueInteractions();
+    $job = (new SyncTraderPortfolioJob(Trader::factory()->create()))->withFakeQueueInteractions();
     app()->call([$job, 'handle']);
 
     $job->assertReleased(delay: 60);
 });
 
-it('does not release a private trader — the outcome is final', function () {
+it('does not release a private portfolio — the outcome is final', function () {
     Http::fake(['*' => Http::response([], 403)]);
 
-    $job = (new SyncTraderPerformanceJob(Trader::factory()->create()))->withFakeQueueInteractions();
+    $job = (new SyncTraderPortfolioJob(Trader::factory()->create()))->withFakeQueueInteractions();
     app()->call([$job, 'handle']);
 
     $job->assertNotReleased();
@@ -80,7 +82,7 @@ it('does not release a private trader — the outcome is final', function () {
 
 it('is unique per trader and leaves rate limiting to the per-request throttle', function () {
     $trader = Trader::factory()->create();
-    $job = new SyncTraderPerformanceJob($trader);
+    $job = new SyncTraderPortfolioJob($trader);
 
     expect($job->uniqueId())->toBe((string) $trader->id)
         ->and(method_exists($job, 'middleware'))->toBeFalse()
@@ -88,19 +90,10 @@ it('is unique per trader and leaves rate limiting to the per-request throttle', 
         ->and(RateLimiter::limiter('etoro-api'))->not->toBeNull();
 });
 
-it('limits the shared eToro budget to ETORO_REQUESTS_PER_MINUTE', function () {
-    config(['etoro.requests_per_minute' => 45]);
-
-    $limit = RateLimiter::limiter('etoro-api')(new SyncTraderPerformanceJob(Trader::factory()->create()));
-
-    expect($limit->maxAttempts)->toBe(45)
-        ->and($limit->decaySeconds)->toBe(60);
-});
-
 it('closes the ImportRuns its interrupted attempt left running when it fails', function (Throwable $exception, string $interruption) {
-    $job = (new SyncTraderPerformanceJob(Trader::factory()->create()))->setJob(fakeQueueJobWithUuid());
+    $job = (new SyncTraderPortfolioJob(Trader::factory()->create()))->setJob(fakeQueueJobWithUuid());
     $running = ImportRun::factory()->create([
-        'type' => 'performance',
+        'type' => 'portfolio',
         'status' => ImportRunStatus::Running,
         'metadata' => ['query' => ['trader_id' => $job->trader->id], 'queue_job_uuid' => $job->job->uuid()],
     ]);
@@ -124,20 +117,20 @@ it('closes the ImportRuns its interrupted attempt left running when it fails', f
 ]);
 
 it('leaves finished runs and runs of other jobs untouched when it fails', function () {
-    $job = (new SyncTraderPerformanceJob(Trader::factory()->create()))->setJob(fakeQueueJobWithUuid());
+    $job = (new SyncTraderPortfolioJob(Trader::factory()->create()))->setJob(fakeQueueJobWithUuid());
     $finished = ImportRun::factory()->create([
-        'type' => 'performance',
+        'type' => 'portfolio',
         'status' => ImportRunStatus::Completed,
         'metadata' => ['queue_job_uuid' => $job->job->uuid()],
         'finished_at' => now()->subMinute(),
     ]);
     $otherJob = ImportRun::factory()->create([
-        'type' => 'performance',
+        'type' => 'portfolio',
         'status' => ImportRunStatus::Running,
         'metadata' => ['queue_job_uuid' => 'another-job-uuid'],
     ]);
     $synchronous = ImportRun::factory()->create([
-        'type' => 'performance',
+        'type' => 'portfolio',
         'status' => ImportRunStatus::Running,
         'metadata' => ['query' => ['trader_id' => $job->trader->id]],
     ]);
@@ -152,18 +145,18 @@ it('leaves finished runs and runs of other jobs untouched when it fails', functi
 });
 
 it('does nothing on failure without a queue job', function () {
-    $running = ImportRun::factory()->create(['type' => 'performance', 'status' => ImportRunStatus::Running]);
+    $running = ImportRun::factory()->create(['type' => 'portfolio', 'status' => ImportRunStatus::Running]);
 
-    (new SyncTraderPerformanceJob(Trader::factory()->create()))->failed(new TimeoutExceededException('timed out'));
+    (new SyncTraderPortfolioJob(Trader::factory()->create()))->failed(new TimeoutExceededException('timed out'));
 
     expect($running->fresh()->status)->toBe(ImportRunStatus::Running);
 });
 
 it('tags its runs with the queue job uuid and closes runs a killed earlier attempt left running', function () {
     Http::fake(['*' => Http::response([], 403)]);
-    $job = (new SyncTraderPerformanceJob(Trader::factory()->create()))->setJob(fakeQueueJobWithUuid());
+    $job = (new SyncTraderPortfolioJob(Trader::factory()->create()))->setJob(fakeQueueJobWithUuid());
     $orphan = ImportRun::factory()->create([
-        'type' => 'performance',
+        'type' => 'portfolio',
         'status' => ImportRunStatus::Running,
         'metadata' => ['queue_job_uuid' => $job->job->uuid()],
     ]);
@@ -172,13 +165,13 @@ it('tags its runs with the queue job uuid and closes runs a killed earlier attem
 
     expect($orphan->fresh()->status)->toBe(ImportRunStatus::Failed)
         ->and($orphan->fresh()->metadata['interruption'])->toBe('attempt_interrupted')
-        ->and(ImportRun::where('type', 'performance')->whereKeyNot($orphan->id)->get())
+        ->and(ImportRun::where('type', 'portfolio')->whereKeyNot($orphan->id)->get())
         ->each(fn ($run) => $run->metadata->queue_job_uuid->toBe($job->job->uuid())
             ->and($run->status)->not->toBe(ImportRunStatus::Running));
 });
 
 it('times out below retry_after and fails instead of retrying on timeout', function () {
-    $job = new SyncTraderPerformanceJob(Trader::factory()->create());
+    $job = new SyncTraderPortfolioJob(Trader::factory()->create());
 
     expect($job->timeout)->toBeLessThan(config('queue.connections.database.retry_after'))
         ->and($job->timeout)->toBeLessThan(config('queue.connections.redis.retry_after'))
@@ -192,10 +185,10 @@ it('closes its running run when the worker fails it on timeout', function () {
     // RefreshDatabase's test transaction; only that rollback is disabled here.
     config(['queue.failed.driver' => 'null']);
     $trader = Trader::factory()->create();
-    Queue::connection('database')->push(new SyncTraderPerformanceJob($trader));
+    Queue::connection('database')->push(new SyncTraderPortfolioJob($trader));
     $queueJob = Queue::connection('database')->pop();
     $running = ImportRun::factory()->create([
-        'type' => 'performance',
+        'type' => 'portfolio',
         'status' => ImportRunStatus::Running,
         'metadata' => ['queue_job_uuid' => $queueJob->uuid()],
     ]);

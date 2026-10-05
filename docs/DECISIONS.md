@@ -1456,3 +1456,241 @@ dnevnog pool-a)
 - „Asset class“ u koncentraciji (PROJECT.md §13.6) = eToro instrument
   type (`instrumentTypeID` → opis iz kataloga). Sektor (`stocksIndustryID`)
   se čuva, ali se ne prikazuje dok nema kataloga industrija.
+
+## D-038: Portfolio persistence — snapshot, pozicije, instrumenti i idempotentnost
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 4, Checkpoint B; bez live poziva)
+
+**Kontekst:** PROJECT.md §11 predlaže `portfolio_snapshots`,
+`portfolio_positions` i `instruments` sa decimal težinama i `raw_payload`
+kolonama. D-037 je potvrdio šemu payload-a i odlučio šta domen nosi
+(`LivePortfolio`/`PortfolioPosition` namerno bez `netProfit`, `openRate`,
+`unrealizedCreditPct` i sirovog payload-a).
+
+**Odluka:**
+
+1. **Šema (odstupanja od §11):**
+   - Težine su `*_ppb` signed BIGINT (tačan decimalni udeo u ppb, isto
+     kao `performance_points.gain_ppb`, D-034) umesto DECIMAL:
+     `cash_weight_ppb` (nullable — odsutan `realizedCreditPct` je
+     „nepoznato“, nikad 0), `invested_weight_ppb` (Σ pozicija, NOT NULL),
+     `portfolio_positions.weight_ppb`.
+   - **Bez `raw_payload` kolona** ni u jednoj tabeli: nijedna druga tabela
+     ne čuva sirove odgovore (D-017; raw capture je samo opt-in fajl), a
+     domen ih namerno ne nosi.
+   - **Bez `open_rate` i `net_profit`**: D-037 — semantika nepotvrđena,
+     nema konzumenta. `take_profit_rate`/`stop_loss_rate` su
+     DECIMAL(30,10) (float iz JSON-a → fiksni decimalni string sa 10
+     decimala, nikad float u bazi); dodat `trailing_stop_loss` jer ga
+     domen nosi.
+   - `external_position_id` je NOT NULL (mapper ga zahteva);
+     `position_index` čuva redosled iz payload-a i jedinstven je po
+     snapshot-u — duplikat `positionId` se čuva kako je primljen, jer ga
+     coverage kalkulator prijavljuje kao data-quality upozorenje (isti
+     ugovor kao `LivePortfolioCoverageAdapter`).
+   - Snapshot dobija `position_count`, `social_trades_count` (socialTrades
+     se samo broje, D-037) i `last_confirmed_at`.
+   - `instruments`: `exchange` → `exchange_id` i dodati
+     `instrument_type_id`, `stocks_industry_id`, `metadata_synced_at`, jer
+     API vraća samo ID-jeve (D-037); `asset_class` = opis tipa iz
+     kataloga. `instrument_id` na poziciji je nullable FK
+     (`nullOnDelete`), ali importer uvek prvo napravi „golu“ instrument
+     vrstu (`insertOrIgnore`), pa je link uvek popunjen.
+   - `traders.portfolio_synced_at` + `traders.portfolio_visibility`
+     (ponovo korišćen enum `PerformanceVisibility`: available/private/
+     not_found — isti ishodi kao performance endpoint).
+   - Kratka imena indeksa (`pf_snap_*`, `pf_pos_*`) zbog MySQL limita od
+     64 znaka (bfd629a).
+2. **`source_hash`** = sha256 nad kanonskim JSON-om normalizovanog
+   sadržaja tačno onako kako se upisuje: verzija normalizacije
+   (`portfolio-v1`), `cash_weight_ppb`, `social_trades_count` i pozicije
+   **u redosledu iz payload-a** (id, instrument, ppb težina, otvaranje,
+   smer, leverage, TP/SL kao decimal string, trailing). Polja koja se ne
+   modeluju (`netProfit`, `openRate`, `unrealizedCreditPct`, …) ne utiču
+   na hash. Promena normalizacije zahteva novu verziju.
+3. **Idempotentnost = poređenje sa POSLEDNJIM snapshot-om tradera**, ne
+   `unique(trader_id, source_hash)`: isti sadržaj kao poslednji → nema
+   novog reda, samo `last_confirmed_at` (i `traders.portfolio_synced_at`)
+   ide napred. Portfolio A → B → A daje tri snapshot-a (treći je novo
+   posmatranje, vremenska linija se ne gubi). Indeks
+   `(trader_id, source_hash)` je zato običan, ne unique; trka dva
+   paralelna importa istog tradera sprečena je `lockForUpdate` na redu
+   tradera unutar transakcije (plus `ShouldBeUnique` job).
+   Napomena: `investmentPct` se menja sa tržištem, pa realno skoro svaki
+   sync pravi novi snapshot — retencija još nije definisana.
+4. **`App\Application\Traders\SyncTraderPortfolio`**: jedan `portfolio`
+   `ImportRun` po pozivu, pre HTTP-a; poziva samo
+   `EtoroClient::userLivePortfolio`. Ishodi isti kao D-034: 403 →
+   `not_visible` + `private` (sačuvani snapshot-i ostaju), 404 →
+   `not_found`, 429/5xx/transport → `temporarily_unavailable` (jedini
+   retryable, nosi Retry-After), mapping greška → fail closed, ništa se
+   ne upisuje. Live portfolio payload nema username, pa provera
+   identiteta (kao u D-034) ovde nije moguća. `error_summary` je statičan
+   tekst; metadata nosi samo ID-jeve i brojeve.
+5. **Obogaćivanje je best-effort** (`EnrichInstrumentMetadata`, posle
+   commit-a snapshot-a): traže se samo instrumenti bez metapodataka ili
+   stariji od 7 dana; `instrumentDisplayData` u batch-evima ≤ 100 id-jeva,
+   pa jednom `instrumentTypes` (samo ako je stigao bar jedan red).
+   eToro request/response/mapping greške se ne propagiraju: snapshot
+   ostaje, ImportRun je `partial` (`success_count` 1, `failure_count` =
+   broj neuspelih metadata zahteva, statičan `error_summary`).
+   Instrument dobija `metadata_synced_at` tek kad ima validan
+   `instrumentTypeID` I katalog sadrži taj tip (asset class razrešen) —
+   inače ostaje kandidat za sledeći import, a run je `partial` (i kad
+   katalog uspešno stigne, ali ne poznaje tip, ili instrument nema/ima
+   neispravan type ID). Klasifikacija (`instrument_type_id`,
+   `asset_class`, `metadata_synced_at`) upisuje se kao celina, tako da
+   `asset_class` uvek opisuje sačuvani tip: razrešen tip zamenjuje celinu;
+   nerazrešen, ali nepromenjen tip (npr. katalog privremeno nedostupan)
+   zadržava prethodnu celinu, bez pomeranja timestamp-a; nerazrešen
+   promenjen ili nedostajući/neispravan tip upisuje novi type ID i briše
+   `asset_class` i `metadata_synced_at` (nepoznato, nikad pogrešna stara
+   klasa). U oba nerazrešena slučaja run je `partial`. Neočekivane
+   (ne-eToro) greške i dalje obaraju run kao `unexpected_failure`.
+6. **Queue/komanda:** `SyncTraderPortfolioJob` (unique po trader-u 1h,
+   deljeni `etoro-api` limiter, `retryUntil` 6h, release samo za
+   retryable ishod portfolio zahteva — metapodaci se ne retry-uju kroz
+   job). `QueueTraderPortfolioSync` je jedini ulaz za UI/konzolu.
+   `php artisan etoro:sync-portfolio {username?} {--watched} {--now}` —
+   isti ugovor kao `etoro:sync-performance`; ne štampa pozicije, težine ni
+   instrumente. Budžet: 1 zahtev (portfolio) + do ⌈n/100⌉ + 1 market-data
+   zahteva kad treba obogaćivanje; market-data ima zasebnu kvotu 120/60s
+   (D-037). Rate limiting je po HTTP pokušaju, ne po job-u — vidi D-039
+   (zamenjuje raniji `RateLimited('etoro-api')` middleware).
+7. **Scheduler: namerno NIJE dodat.** PROJECT.md §16 predviđa sync na 6 h,
+   a unos bi bio trivijalan, ali launchd scheduler/worker su već aktivni
+   (f38c109): unos bi po merge-u odmah pokrenuo automatske live pozive i
+   (tačka 3) gomilanje snapshot-a bez politike retencije. Uključiti posle
+   review-a i odluke o retenciji (test potvrđuje da unos ne postoji).
+8. **Live:** nijedan poziv. Šema i semantika su već potvrđene u D-037;
+   end-to-end provera bi trošila 3 GET-a (portfolio + instruments +
+   types), više od odobrenog limita. MySQL putanja je proverena lokalno
+   (`migrate` na `trade_ledger` + import sa `Http::fake` u transakciji
+   koja je vraćena — bez trajnih upisa).
+
+## D-039: eToro rate limiting po HTTP pokušaju (transportni sloj)
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 4, Checkpoint B review; zamenjuje
+job-level `RateLimited('etoro-api')` iz D-034/D-038)
+
+**Kontekst:** `RateLimited('etoro-api')` middleware je trošio jednu
+dozvolu po job-u, a performance sync šalje 2 zahteva (D-035), portfolio
+sync 1 + ⌈n/100⌉ + 1, a interni retry-ji `EtoroClient`-a (do 3 pokušaja)
+dodatno. Sinhrono izvršavanje (`--now`) i `etoro:doctor` limiter su
+potpuno zaobilazili.
+
+**Odluka:**
+
+1. `App\Etoro\EtoroRequestThrottle` troši **jednu dozvolu pre svakog
+   HTTP pokušaja** u `EtoroClient::get()` — uključujući retry-je posle
+   5xx/transport greške. Važi za svaki ulaz (queue, `--now`, doctor,
+   discovery), jer svi idu kroz `EtoroClient`.
+2. **Dva limitera:** `etoro-api` (`etoro.requests_per_minute`,
+   ETORO_REQUESTS_PER_MINUTE, default 45 od eToro 60/60 s) za sve
+   ne-market-data endpointe, i `etoro-market-data`
+   (`etoro.market_data_requests_per_minute` = 90 od eToro 120/60 s,
+   D-037) za `/api/v1/market-data/*`. Zasebna kvota zaslužuje zaseban
+   budžet: inače bi obogaćivanje metapodataka trošilo deljeni budžet
+   portfolio/gain zahteva, a ne bi štitilo market-data kvotu ništa
+   bolje. Fail closed: nedostajući limiter = 1/min.
+3. **Kad nema dozvole: bez čekanja** (revidirano u drugoj rundi review-a;
+   prvobitno ograničeno blokirajuće čekanje od 20 s po pozivu
+   `acquire()`). Granica po `acquire()` nije granica po job-u: sa do 3
+   HTTP pokušaja, backoff-om i više zahteva u portfolio enrichment-u,
+   čekanje se sabiralo i moglo da pređe worker timeout (60 s) i
+   `retry_after` (90 s) — worker ubijen, ImportRun ostaje `running`, a
+   sinhrone Filament akcije (profile lookup, discovery) bi visile.
+   Sada `acquire()` odmah baca
+   `EtoroRequestException::localBudgetExhausted()` — kategorija
+   `RateLimited`, bez HTTP statusa, `locallyThrottled = true`,
+   `retryAfterSeconds` = preostali prozor limitera (1–60 s); zahtev se NE
+   šalje. `attemptCount` je broj pokušaja istog poziva koji su već
+   poslati (npr. 1 kad je posle 503 lokalno odbijen retry) i `requestId`
+   poslednjeg poslatog, pa `ImportRun.request_count` ostaje tačan.
+   Throttle tako doprinosi 0 s trajanju bilo kog job-a ili web zahteva;
+   use case-ovi ga mapiraju u `temporarily_unavailable` i ImportRun
+   završavaju kao `failed` (nikad `running`): queued job se release-uje
+   sa Retry-After, Filament akcija odmah prikazuje „did not complete“ sa
+   linkom na run, a `--now` komande ne čekaju nego posle tabele ispisuju
+   upozorenje da se ponovi kasnije ili koristi queue. Obogaćivanje
+   metapodataka ga tretira kao neuspeo metadata zahtev (`partial`,
+   ponovni pokušaj na sledećem importu). Odbačena alternativa: jedan
+   ukupni deadline po job-u — zahteva provlačenje deadline-a kroz sve use
+   case-ove i i dalje drži worker zauzetim čekajući tuđi saobraćaj, dok
+   release vraća slot odmah. `etoro.rate_limit_max_wait_seconds` je
+   uklonjen. Preostalo trajanje je samo HTTP vreme (timeout po pokušaju,
+   `etoro.timeout_seconds`), nezavisno od ovog limitera.
+4. `RateLimited` middleware je **uklonjen iz oba job-a** — nad istim
+   limiterom bi dvostruko trošio dozvole, a kao grubi throttle job-ova
+   ne dodaje zaštitu koju transportni limiter već ne daje.
+5. Nove config vrednosti nemaju env varijable (fiksne u
+   `config/etoro.php`), da se ne bi menjao `.env.example`; promena
+   zahteva izmenu config-a.
+
+**Posledica:** budžet je sada stvarni broj HTTP pokušaja. Brojač je u
+cache store-u; atomičnost između paralelnih worker-a je ona koju daje
+`RateLimiter::attempt` (moguće je malo prekoračenje pri trci — eToro
+kvota ima rezervu 15/30 zahteva).
+
+## D-040: Timeout queued sync job-ova i zatvaranje prekinutih ImportRun-ova
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 4, Checkpoint B review; dopunjuje D-034,
+D-038, D-039)
+
+**Kontekst:** `SyncTraderPerformanceJob` i `SyncTraderPortfolioJob` nisu
+imali `$timeout` ni `failed()`. Launchd worker radi sa
+`queue:work --tries=1 --max-time=3600` (podrazumevani timeout 60 s),
+`retry_after` je 90 s (`config/queue.php`, database/redis/beanstalkd;
+lokalni `.env` nije čitan — ako ga menja, uslov `timeout < retry_after`
+treba ponovo proveriti). Najgori HTTP slučaj po zahtevu je 3 pokušaja ×
+20 s (`etoro.timeout_seconds`) + backoff ≈ 61 s; performance šalje 2
+zahteva (≈ 122 s), portfolio 1 + ⌈n/100⌉ + 1 (≥ 3 → ≈ 183 s). Throttle
+doprinosi 0 s (D-039 t. 3). Ubijen pokušaj ostavljao je ImportRun
+zauvek `running`; zbog `retryUntil()` (6 h) Laravel ga posle timeout-a ne
+markira kao failed nego ponavlja posle `retry_after`.
+
+**Odluka:**
+
+1. **`public int $timeout = 80`** na oba job-a: ispod `retry_after` (90 s)
+   sa 10 s rezerve za timeout handler i `failed()`, pa isti pokušaj nikad
+   ne preuzme drugi worker; iznad worker-ovih 60 s. Najgori slučaj ne
+   staje u 80 s i namerno se ne pokušava uklopiti (manje pokušaja/kraći
+   HTTP timeout bi oslabio normalan oporavak od kratkih 5xx): uobičajen
+   zahtev traje < 2 s, a 80 s se dostiže tek uz ≥ 4 zaglavljena pokušaja
+   od 20 s — eToro „visi“, što nije stanje za brzo ponavljanje.
+2. **`public bool $failOnTimeout = true`**: timeout završava job kao
+   failed umesto ponavljanja u `retryUntil()` prozoru (zaglavljen
+   endpoint bi se inače ponavljao na svakih 90 s satima i trošio budžet);
+   unique lock se oslobađa, sledeći dispatch/scheduler pokušava ponovo.
+   Brzi 429/5xx i dalje idu na `release()` sa Retry-After (D-034).
+3. **Identifikacija run-ova:** job prosleđuje `$this->job->uuid()` use
+   case-u (`SyncTraderPerformance::handle(..., $queueJobUuid)`,
+   `SyncTraderPortfolio::handle(..., $queueJobUuid)`), koji ga upisuje u
+   `import_runs.metadata.queue_job_uuid`. UUID je isti kroz sve
+   release/retry pokušaje istog queued job-a, a različit od svakog drugog
+   job-a i sinhronog (`--now`, Filament) run-a, koji ga nemaju.
+4. **`App\Application\Imports\FailInterruptedImportRuns`** zatvara samo
+   run-ove tog tipa sa tim UUID-om koji su još `running`: `failed`,
+   `failure_count` 1, `finished_at`, statički `error_summary`, metadata
+   `stop_reason = interrupted` i `interruption` = `timeout`
+   (`TimeoutExceededException`), `max_attempts`
+   (`MaxAttemptsExceededException`, npr. hard-kill posle isteka
+   `retryUntil()`), `job_failed` (ostalo) ili `attempt_interrupted`.
+   Završen run se nikad ne dira. Poziva se iz `failed(?Throwable)` oba
+   job-a (radi i iz worker-ovog timeout handler-a — `Job::fail()` pre toga
+   vraća otvorene transakcije na nivo 0, pa upis ne nestaje sa ubijenim
+   procesom) i **na početku svakog `handle()`** za run-ove prethodnog
+   pokušaja ubijenog bez `failed()` (SIGKILL, OOM, worker bez pcntl).
+5. **`ImportRunFailureReason` nije proširen:** taj enum opisuje odbijene
+   pojedinačne ranking unose (`import_run_failures`, konflikt identiteta),
+   ne ishod celog run-a. Ishod run-a se i dalje beleži kroz `status`,
+   `error_summary` i `metadata.stop_reason`, kao i svi ostali ishodi sync
+   use case-ova; `interrupted` je nova vrednost tog polja.
+
+**Posledica:** nijedan run koji je queued job otvorio ne ostaje trajno
+`running` posle timeout-a, failed-a ili ponovljenog pokušaja. Preostalo:
+run ubijenog pokušaja koji se nikad više ne pokrene i čiji `failed()`
+nije pozvan (npr. job ručno obrisan iz `jobs` tabele) ostaje `running`.

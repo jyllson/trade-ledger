@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
@@ -29,6 +30,8 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $profile_synced_at
  * @property Carbon|null $performance_synced_at
  * @property PerformanceVisibility|null $performance_visibility
+ * @property Carbon|null $portfolio_synced_at
+ * @property PerformanceVisibility|null $portfolio_visibility
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -49,6 +52,8 @@ use Illuminate\Support\Carbon;
     'profile_synced_at',
     'performance_synced_at',
     'performance_visibility',
+    'portfolio_synced_at',
+    'portfolio_visibility',
 ])]
 class Trader extends Model
 {
@@ -71,6 +76,8 @@ class Trader extends Model
             'profile_synced_at' => 'datetime',
             'performance_synced_at' => 'datetime',
             'performance_visibility' => PerformanceVisibility::class,
+            'portfolio_synced_at' => 'datetime',
+            'portfolio_visibility' => PerformanceVisibility::class,
         ];
     }
 
@@ -80,5 +87,23 @@ class Trader extends Model
     public function performancePoints(): HasMany
     {
         return $this->hasMany(PerformancePoint::class);
+    }
+
+    /**
+     * @return HasMany<PortfolioSnapshot, $this>
+     */
+    public function portfolioSnapshots(): HasMany
+    {
+        return $this->hasMany(PortfolioSnapshot::class);
+    }
+
+    /**
+     * The most recently captured portfolio snapshot.
+     *
+     * @return HasOne<PortfolioSnapshot, $this>
+     */
+    public function latestPortfolioSnapshot(): HasOne
+    {
+        return $this->hasOne(PortfolioSnapshot::class)->ofMany(['captured_at' => 'max', 'id' => 'max']);
     }
 }

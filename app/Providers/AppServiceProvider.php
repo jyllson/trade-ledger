@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Application\Traders\BuildTraderPerformanceReport;
+use App\Etoro\EtoroRequestThrottle;
 use App\Etoro\EtoroWriteGuard;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -36,13 +37,14 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
-     * One shared budget for every queued eToro job (PROJECT.md §16): the
-     * eToro default quota is shared across endpoints, so a per-job limit
-     * would not protect it.
+     * Per-HTTP-attempt eToro budgets consumed by EtoroRequestThrottle
+     * (D-039): one shared budget for the default eToro quota (shared across
+     * endpoints, PROJECT.md §16) and one for the separate market-data quota.
      */
     protected function configureRateLimiting(): void
     {
-        RateLimiter::for('etoro-api', fn (): Limit => Limit::perMinute(max(1, (int) config('etoro.requests_per_minute'))));
+        RateLimiter::for(EtoroRequestThrottle::DEFAULT_LIMITER, fn (): Limit => Limit::perMinute(max(1, (int) config('etoro.requests_per_minute'))));
+        RateLimiter::for(EtoroRequestThrottle::MARKET_DATA_LIMITER, fn (): Limit => Limit::perMinute(max(1, (int) config('etoro.market_data_requests_per_minute'))));
     }
 
     /**

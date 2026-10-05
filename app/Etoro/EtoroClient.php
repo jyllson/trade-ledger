@@ -40,7 +40,10 @@ class EtoroClient
 
     public const MAX_INSTRUMENT_IDS = 100;
 
-    public function __construct(private readonly Factory $http) {}
+    public function __construct(
+        private readonly Factory $http,
+        private readonly EtoroRequestThrottle $throttle = new EtoroRequestThrottle,
+    ) {}
 
     public function authenticatedUser(): EtoroApiResponse
     {
@@ -162,6 +165,10 @@ class EtoroClient
         $finalAttemptDurationMs = 0.0;
 
         for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
+            // One permit per HTTP attempt, retries included (D-039). A refused
+            // retry still reports the attempts already sent.
+            $this->throttle->acquire($path, $attempt - 1, $requestId);
+
             $requestId = (string) Str::uuid();
             $attemptStartedAt = microtime(true);
 

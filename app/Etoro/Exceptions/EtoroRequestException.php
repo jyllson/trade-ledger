@@ -26,8 +26,29 @@ class EtoroRequestException extends RuntimeException
         public readonly int $attemptCount = 1,
         public readonly ?float $totalDurationMs = null,
         public readonly ?float $finalAttemptDurationMs = null,
+        public readonly bool $locallyThrottled = false,
     ) {
         parent::__construct($message);
+    }
+
+    /**
+     * The application's own per-request budget (EtoroRequestThrottle,
+     * D-039) is exhausted: the next HTTP attempt was not sent. Categorized
+     * as RateLimited so every caller treats it as temporarily unavailable.
+     * $attemptCount is the number of attempts of the same call that WERE
+     * already sent (non-zero when a retry was refused).
+     */
+    public static function localBudgetExhausted(int $retryAfterSeconds, int $attemptCount = 0, ?string $requestId = null): self
+    {
+        return new self(
+            'eToro request deferred: local request budget exhausted.',
+            EtoroErrorCategory::RateLimited,
+            null,
+            $requestId,
+            $retryAfterSeconds,
+            attemptCount: $attemptCount,
+            locallyThrottled: true,
+        );
     }
 
     public static function fromStatus(
