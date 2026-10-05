@@ -9,10 +9,12 @@ use InvalidArgumentException;
 
 /**
  * A single eToro performance-history data point (one monthly or yearly
- * record). `gain` is retained as the observed API decimal-fraction value
- * exactly as received — no summation, compounding, Percentage conversion,
- * or other float-exactness-dependent calculation belongs on this DTO (see
- * docs/DECISIONS.md).
+ * record) from the v1 `/gain` endpoint. `gain` is retained exactly as
+ * received. Live data shows v1 `gain` is in PERCENTAGE POINTS (3.3 = 3.3%),
+ * not a decimal fraction — the synthetic fixture's small values do not
+ * reflect real units. No summation, compounding, Percentage conversion,
+ * or other float-exactness-dependent calculation belongs on this DTO, and
+ * v1 data is not an analytics source (see docs/DECISIONS.md D-032).
  */
 final readonly class PerformancePoint
 {

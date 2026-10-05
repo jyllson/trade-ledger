@@ -1197,3 +1197,63 @@ formalizuje postojeći, testovima potvrđen ugovor
   zavisnosti i odsustvo duplirane freshness/retry-eligibility logike.
 
 ---
+
+## D-032: Izvor performance podataka za Milestone 3 — v2 gain time-series, jedinice i konvencije
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 3, Checkpoint A, grana
+`codex/milestone-3-performance-analytics`)
+
+**Kontekst:** Zvanični OpenAPI (v1.385.0) dokumentuje dva relevantna
+endpointa:
+
+- v1 `GET /api/v1/user-info/people/{username}/gain` — opisan kao „gain
+  percentages“, bez eksplicitnih jedinica u šemi (`gain: number`);
+- v2 `GET /api/v2/portfolios/{username}/gain/{granularity}`
+  (`getGainHistory`) — `granularity ∈ {daily, monthly, yearly}`, opcioni
+  `minDate`/`maxDate`/`count (1..1000)`, eksplicitno: „Gain values are
+  decimal fractions: 0.06 = 6%“; `totalGain` = složeni gain serije;
+  dokumentovan `403` = „Target user has opted out of portfolio exposure“.
+
+**Dokaz (live, vlasnik odobrio jedan GET):** jedan poziv v2 `monthly`
+(`count=1000`) za istog tradera čiji je v1 `/gain` odgovor privatno
+snimljen 2026-07-31. Upoređeni su isključivo agregatni brojevi:
+
+- 80 preklapajućih meseci; medijana odnosa v1/v2 = **100.000**; 79/80
+  meseci se poklapa tačno (|v1 − 100·v2| ≈ 0); jedini izuzetak je mesec
+  koji je u trenutku v1 snimka još trajao.
+- `totalGain` = Π(1 + gain) − 1 sa razlikom ~2.6e-7 (zaokruživanje).
+- `gain` vrednosti imaju najviše 4 decimale; datumi su `YYYY-MM-DD`,
+  strogo rastući, jedinstveni.
+- Prva tačka može imati datum koji nije 1. u mesecu (delimičan prvi mesec
+  — početak aktivnosti); poslednja tačka je TEKUĆI, nezavršen mesec
+  (month-to-date).
+- Odgovor vraća `RateLimit-Limit`/`RateLimit-Remaining` header-e
+  (60/59) — bez `X-` prefiksa.
+
+**Odluka:**
+
+1. **v2 gain time-series je jedini izvor za performance analitiku.** v1
+   `/gain` se ne koristi za kalkulacije; v1 `gain` je u **procentnim
+   poenima** (`PerformancePoint`/`PerformanceHistoryMapper` docblock
+   ispravljen; v1 fixture eksplicitno označen kao ne-unit-faithful).
+2. v2 `gain` je **decimalni udeo**. Na granici mapiranja se ne množi/deli
+   float-om; vrednost se prevodi u tačnu decimalnu reprezentaciju (string,
+   BCMath) za kalkulacije.
+3. **Delimični periodi se eksplicitno označavaju**, ne odbacuju ćutke:
+   prvi period čiji datum nije početak perioda je `partial_start`;
+   poslednji period koji obuhvata trenutak sinhronizacije je
+   `in_progress`. Statistike po završenim mesecima (npr. positive-month
+   ratio, streak-ovi) po default-u isključuju `in_progress` period;
+   kumulativni prinos ga uključuje i to se prikazuje.
+4. `EtoroClient::userGainHistory(username, GainGranularity, ?count)` je
+   novi typed GET metod (bez date-range parametara dok ih ne zatreba
+   konzument); `etoro:doctor --only=gain-history` je nova proba koja NIJE
+   deo punog `--live` runa (pun run ostaje 7 proba).
+5. `EtoroClient` sada hvata i dokumentovane `RateLimit-*` header-e
+   (pored `X-RateLimit-*`). Ovo objašnjava zašto M1 nije video rate-limit
+   header-e. Dokumentovana kvota je 60 zahteva / 60 s, deljena između
+   svih endpointa bez posebnog limita; aplikacioni budžet ostaje 45/min.
+6. `daily` granularnost ima istu dokumentovanu šemu, ali **još nije
+   live-potvrđena** — mapper/import za `daily` čeka posebno odobrenje za
+   live probu.

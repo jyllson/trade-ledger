@@ -10,6 +10,7 @@ use App\Etoro\EtoroErrorCategory;
 use App\Etoro\Exceptions\EtoroConfigurationException;
 use App\Etoro\Exceptions\EtoroRequestException;
 use App\Etoro\Exceptions\EtoroUnexpectedResponseException;
+use App\Etoro\GainGranularity;
 use App\Etoro\RankingQuery;
 use Closure;
 use Illuminate\Console\Command;
@@ -21,7 +22,7 @@ class EtoroDoctorCommand extends Command
 {
     protected $signature = 'etoro:doctor
         {--live : Perform real read-only GET probes against the eToro API}
-        {--only= : Run exactly one allowlisted capability probe (me, rankings, profile, performance, live-portfolio, real-pnl, demo-pnl)}
+        {--only= : Run exactly one allowlisted capability probe (me, rankings, profile, performance, gain-history, live-portfolio, real-pnl, demo-pnl)}
         {--capture-raw : Persist full raw responses locally (gitignored); may contain personal and financial data}
         {--username= : Use this username for profile/performance/portfolio probes instead of selecting one from rankings}';
 
@@ -30,6 +31,12 @@ class EtoroDoctorCommand extends Command
     private const PAUSE_BETWEEN_PROBES_SECONDS = 1;
 
     private const MAX_RATE_LIMIT_WAIT_SECONDS = 60;
+
+    /**
+     * Documented maximum `count` for the v2 gain time-series — one probe
+     * returns the deepest available monthly history.
+     */
+    private const GAIN_HISTORY_PROBE_COUNT = 1000;
 
     /**
      * Allowlisted capability slugs for --only, each mapped to its display
@@ -45,6 +52,7 @@ class EtoroDoctorCommand extends Command
         'rankings' => ['label' => 'Investor rankings', 'path' => '/api/v2/portfolios/rankings', 'accountLevel' => true, 'needsUsername' => false],
         'profile' => ['label' => 'Public trader profile', 'path' => '/api/v1/user-info/people', 'accountLevel' => false, 'needsUsername' => true],
         'performance' => ['label' => 'Trader performance history', 'path' => '/api/v1/user-info/people/{username}/gain', 'accountLevel' => false, 'needsUsername' => true],
+        'gain-history' => ['label' => 'Trader gain time-series (monthly)', 'path' => '/api/v2/portfolios/{username}/gain/monthly', 'accountLevel' => false, 'needsUsername' => true],
         'live-portfolio' => ['label' => 'Trader live portfolio', 'path' => '/api/v1/user-info/people/{username}/portfolio/live', 'accountLevel' => false, 'needsUsername' => true],
         'real-pnl' => ['label' => 'Real account P&L', 'path' => '/api/v1/trading/info/real/pnl', 'accountLevel' => true, 'needsUsername' => false],
         'demo-pnl' => ['label' => 'Demo account P&L', 'path' => '/api/v1/trading/info/demo/pnl', 'accountLevel' => true, 'needsUsername' => false],
@@ -287,6 +295,7 @@ class EtoroDoctorCommand extends Command
             'rankings' => fn () => $this->client->rankings(new RankingQuery(period: 'CurrMonth', page: 1, pageSize: 5)),
             'profile' => fn () => $this->client->userProfile($username),
             'performance' => fn () => $this->client->userPerformance($username),
+            'gain-history' => fn () => $this->client->userGainHistory($username, GainGranularity::Monthly, self::GAIN_HISTORY_PROBE_COUNT),
             'live-portfolio' => fn () => $this->client->userLivePortfolio($username),
             'real-pnl' => fn () => $this->client->accountPnl(EtoroEnvironment::Real),
             'demo-pnl' => fn () => $this->client->accountPnl(EtoroEnvironment::Demo),
@@ -345,8 +354,8 @@ class EtoroDoctorCommand extends Command
                 CapabilityStatus::Works,
                 $note,
                 retryAfter: isset($response->rateLimitHeaders['Retry-After']) ? (int) $response->rateLimitHeaders['Retry-After'] : null,
-                rateLimitLimit: $response->rateLimitHeaders['X-RateLimit-Limit'] ?? null,
-                rateLimitRemaining: $response->rateLimitHeaders['X-RateLimit-Remaining'] ?? null,
+                rateLimitLimit: $response->rateLimitHeaders['X-RateLimit-Limit'] ?? $response->rateLimitHeaders['RateLimit-Limit'] ?? null,
+                rateLimitRemaining: $response->rateLimitHeaders['X-RateLimit-Remaining'] ?? $response->rateLimitHeaders['RateLimit-Remaining'] ?? null,
             ),
             'response' => $response,
         ];

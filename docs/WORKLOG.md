@@ -1504,3 +1504,57 @@ koda, bez eToro poziva, bez pristupa bazi, `.env` nije čitan.
   (database queue), ne samo sinhrono iz CLI-ja.
 
 ---
+
+## 2026-10-05 — Milestone 3, Checkpoint A: izvor performance podataka i jedinice
+
+Grana `codex/milestone-3-performance-analytics` (od
+`chore/post-milestone-2-housekeeping`, `7306dd7`).
+
+### Šta je urađeno
+
+1. Pročitan zvanični OpenAPI (v1.385.0) za v1 `/gain`, v1 `/daily-gain` i
+   v2 `/api/v2/portfolios/{username}/gain/{granularity}`. v2 eksplicitno
+   dokumentuje decimalne udele, `daily/monthly/yearly`, `count ≤ 1000` i
+   `403` za opt-out.
+2. Pregledan postojeći privatni v1 `/gain` raw snimak (2026-07-31), samo
+   agregatne statistike: medijana |gain| 3.3 mesečno / 31.87 godišnje →
+   v1 je u procentnim poenima, suprotno docblock-u `PerformancePoint` i
+   sintetičkom fixture-u.
+3. Dodat `App\Etoro\GainGranularity` i
+   `EtoroClient::userGainHistory()`; `etoro:doctor --only=gain-history`
+   (nije deo punog `--live` runa). Klijent sada hvata i `RateLimit-*`
+   header-e.
+4. **Live poziv (vlasnik odobrio tačno jedan GET):**
+   `etoro:doctor --live --only=gain-history --capture-raw` → HTTP 200,
+   1 pokušaj, ~1.1 s, 83 mesečne tačke, `RateLimit-Limit=60`,
+   `RateLimit-Remaining=59`. Raw snimak ostaje privatan i git-ignorisan.
+   Unakrsna provera protiv v1 snimka (agregati): odnos v1/v2 = 100.000,
+   79/80 meseci identično; `totalGain` = složena serija.
+5. Novi potpuno sintetički fixture `tests/Fixtures/Etoro/gain-history-monthly.json`
+   (26 tačaka, delimičan prvi mesec, konzistentan `totalGain`); leakage
+   scan protiv raw snimka: 0 preklapanja (datumi, parovi datum/gain,
+   username, totalGain). `FixtureIntegrityTest` proširen.
+6. Ispravljeni docblock-ovi `PerformancePoint`/`PerformanceHistoryMapper`
+   i fixture README (v1 = procentni poeni, nije analitički izvor).
+7. `composer types:check` dobio `--memory-limit=1G` — lokalni PHP limit
+   od 128M ruši PHPStan i na nepromenjenom `main`-u (okruženje, ne kod).
+8. D-032 dodat; `docs/ETORO_API_CAPABILITIES.md` Run #3 dodat.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1395 total, 1391 passed, 4 skipped, 4881
+  assertions, 1 poznato nepovezano upozorenje.
+- `composer lint:check`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Tačno jedan live eToro GET (odobren); bez `.env` čitanja; bez pristupa
+bazi; nijedan username, request payload ili pojedinačna vrednost iz live
+odgovora nije zapisan u repozitorijum (request ID iz sanitizovanog
+doctor izlaza nije prenesen u dokumentaciju).
+
+### Sledeće
+
+Checkpoint B — čisti kalkulatori u `App\Analytics` (v2 mapper + prinos,
+drawdown, konzistentnost) nad sintetičkim fixture-om. `daily`
+granularnost čeka odobrenje za live probu.

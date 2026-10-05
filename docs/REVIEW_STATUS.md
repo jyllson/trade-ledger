@@ -8,8 +8,9 @@ and-ui`), sva tri §20 acceptance kriterijuma (Checkpoint J), i integration
 Checkpoint K; vidi "Post-merge closeout — Checkpoint K" niže za pun
 detalj. Sledeći product
 milestone po `PROJECT.md` §20 je **Milestone 3 (performance analytics)** —
-vlasnik ga je izabrao kao sledeći (2026-10-05); implementacija NIJE
-započeta.
+vlasnik ga je izabrao kao sledeći (2026-10-05); **u toku** na grani
+`codex/milestone-3-performance-analytics` — Checkpoint A (izvor podataka
+i jedinice, D-032) završen, sledi Checkpoint B (kalkulatori).
 **Post-merge zapis:** Checkpoint K closeout je mergovan u `main` kao
 PR #7 (<https://github.com/jyllson/trade-ledger/pull/7>, merge SHA
 `9bf63be`, mergedAt `2026-08-24T08:33:36Z`, CI `ci` SUCCESS) — vidi
