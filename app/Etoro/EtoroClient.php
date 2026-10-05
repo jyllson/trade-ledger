@@ -101,7 +101,10 @@ class EtoroClient
      * `explode: false` array, i.e. comma-separated. Callers batch; at most
      * MAX_INSTRUMENT_IDS ids per request keeps the URL bounded.
      *
-     * @param  list<int>  $instrumentIds
+     * Typed loosely on purpose: every element is checked at runtime, since
+     * the ids originate from API payloads.
+     *
+     * @param  array<int, mixed>  $instrumentIds
      */
     public function instrumentDisplayData(array $instrumentIds): EtoroApiResponse
     {
