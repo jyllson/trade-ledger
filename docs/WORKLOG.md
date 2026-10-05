@@ -1462,4 +1462,45 @@ stage/commit/push odobrenje. `origin/main` ostaje na `d107f6e`, bez
 izmene ovim Checkpoint-om (nijedna Git mutacija na `main` nije izvršena
 niti planirana ovim dokumentacionim korakom).
 
+> **Naknadna napomena (2026-10-05):** gornji "Grana/remote stanje" opis je
+> tačan istorijski snapshot u trenutku pisanja. Grana
+> `codex/milestone-2-merge-record` je kasnije push-ovana i mergovana kao
+> PR #7 — vidi unos "2026-10-05 — Post-Milestone 2 housekeeping" niže.
+
+---
+
+## 2026-10-05 — Post-Milestone 2 housekeeping (pred Milestone 3)
+
+**Documentation-only.** Bez izmena produkcijskog/test/config/database
+koda, bez eToro poziva, bez pristupa bazi, `.env` nije čitan.
+
+### Šta je urađeno
+
+1. Zabeležen merge Checkpoint K closeout-a (proveren `gh pr view 7`):
+   - PR #7: <https://github.com/jyllson/trade-ledger/pull/7> ("docs:
+     close out Milestone 2 merge") — **MERGED**, merge SHA
+     `9bf63bee749918c9b931a9b2c22899a353afb1da`, mergedAt
+     `2026-08-24T08:33:36Z`, CI check `ci`: **SUCCESS**.
+   - `origin/main` je na početku ovog koraka bio na `9bf63be`.
+2. Lokalni `main` fast-forward-ovan na `origin/main` (`9bf63be`).
+3. Obrisane lokalne grane čiji je tip bio identičan `origin/` kopiji
+   (`codex/milestone-2-discovery-and-ui`,
+   `codex/milestone-2-merge-record`, `feature/trader-ranking-import`) —
+   remote grane nisu dirane.
+4. 32 git-ignorisana review artefakta (`checkpoint-*.patch`/`.zip`)
+   premeštena iz korena repozitorijuma u
+   `../tradelytics-review-artifacts/` (van repozitorijuma) — ništa nije
+   obrisano.
+5. `docs/REVIEW_STATUS.md` header ažuriran (PR #7, sledeći korak
+   Milestone 3).
+
+### Odluke vlasnika za Milestone 3 (2026-10-05)
+
+- Sledeći product milestone: **Milestone 3 (performance analytics)**.
+- Odobren **jedan** read-only live GET poziv radi potvrde jedinica i
+  oblika `/api/v1/user-info/people/{username}/gain` odgovora (Checkpoint
+  A Milestone 3 stream-a).
+- Sinhronizacija performance podataka ide odmah kroz **queued job**
+  (database queue), ne samo sinhrono iz CLI-ja.
+
 ---
