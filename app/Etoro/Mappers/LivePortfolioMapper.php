@@ -48,7 +48,30 @@ final class LivePortfolioMapper
         return new LivePortfolio(
             positions: $positions,
             socialTradesCount: count($socialTradesRaw),
+            cashWeight: $this->mapCashWeight($payload),
         );
+    }
+
+    /**
+     * `realizedCreditPct` is the portfolio's cash weight in percentage
+     * points: in two live samples Σ investmentPct + realizedCreditPct = 100
+     * (docs/DECISIONS.md D-037). Optional — absent means "unknown", never 0.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function mapCashWeight(array $payload): ?Percentage
+    {
+        if (! array_key_exists('realizedCreditPct', $payload) || $payload['realizedCreditPct'] === null) {
+            return null;
+        }
+
+        $cash = $this->mapInvestmentPct($payload['realizedCreditPct'], 'realizedCreditPct');
+
+        if ($cash->isNegative()) {
+            throw EtoroMappingException::invalidValue(self::MAPPER_NAME, 'realizedCreditPct');
+        }
+
+        return $cash;
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Etoro\Data;
 
+use App\Analytics\ValueObjects\Percentage;
 use InvalidArgumentException;
 
 /**
@@ -31,6 +32,7 @@ final readonly class LivePortfolio
     public function __construct(
         array $positions,
         public int $socialTradesCount,
+        public ?Percentage $cashWeight = null,
     ) {
         if (! array_is_list($positions)) {
             throw new InvalidArgumentException('LivePortfolio positions must be a list.');
@@ -40,6 +42,10 @@ final readonly class LivePortfolio
             if (! $position instanceof PortfolioPosition) {
                 throw new InvalidArgumentException('LivePortfolio positions must contain only PortfolioPosition instances.');
             }
+        }
+
+        if ($cashWeight !== null && $cashWeight->isNegative()) {
+            throw new InvalidArgumentException('LivePortfolio cashWeight must not be negative.');
         }
 
         if ($socialTradesCount < 0) {

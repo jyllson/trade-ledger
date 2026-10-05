@@ -431,3 +431,29 @@ it('does not include a mutated sentinel value in mapper exception messages', fun
 
     expect($exception->getMessage())->not->toContain('sentinel-marker-do-not-leak');
 });
+
+it('maps realizedCreditPct as the cash weight in percentage points (D-037)', function (): void {
+    $fixture = checkpointBLivePortfolioFixture();
+    $fixture['realizedCreditPct'] = 2.5;
+
+    $portfolio = (new LivePortfolioMapper)->map($fixture);
+
+    expect($portfolio->cashWeight?->partsPerBillion())->toBe(25_000_000);
+});
+
+it('maps an absent or null realizedCreditPct as an unknown cash weight, never zero', function (): void {
+    $fixture = checkpointBLivePortfolioFixture();
+    unset($fixture['realizedCreditPct']);
+    $absent = (new LivePortfolioMapper)->map($fixture);
+    $fixture['realizedCreditPct'] = null;
+    $null = (new LivePortfolioMapper)->map($fixture);
+
+    expect($absent->cashWeight)->toBeNull()->and($null->cashWeight)->toBeNull();
+});
+
+it('rejects a negative or non-numeric realizedCreditPct', function (mixed $value): void {
+    $fixture = checkpointBLivePortfolioFixture();
+    $fixture['realizedCreditPct'] = $value;
+
+    expect(fn () => (new LivePortfolioMapper)->map($fixture))->toThrow(EtoroMappingException::class);
+})->with([-0.5, '2.5', true]);

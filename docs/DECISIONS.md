@@ -1412,3 +1412,47 @@ današnji dan.
 - Panel nema sopstvenu Filament temu, pa custom Blade koristi inline
   stilove sa Filament CSS varijablama boja (`--success-600`,
   `--danger-600`) umesto nekompajliranih Tailwind klasa.
+
+## D-037: Live portfolio keš i metapodaci instrumenata
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 4, Checkpoint A; live pozivi 3–5/10 iz
+dnevnog pool-a)
+
+**Dokaz (samo agregati, bez identiteta/vrednosti pojedinačnih pozicija):**
+
+- Live portfolio, dva uzorka istog tradera (2026-07-31 i 2026-10-05):
+  Σ `investmentPct` + `realizedCreditPct` = 100.0000 i 99.999986. Šema
+  pozicija nepromenjena; `socialTrades` prazan u oba.
+  `unrealizedCreditPct` je bio blizu `realizedCreditPct` (0.0323 vs 0.0299;
+  0.0002 vs 0.0002) — semantika nepotvrđena.
+- `GET /api/v1/market-data/instruments?instrumentIds=…` → 200; svi traženi
+  instrumenti vraćeni; polja `instrumentID` (int), `instrumentDisplayName`,
+  `symbolFull`, `instrumentTypeID`, `exchangeID`, `stocksIndustryID`
+  (OpenAPI piše `stocksIndustryId`), `priceSource`, `hasExpirationDate`,
+  `isInternalInstrument`, `images[]` i nedokumentovano `distributionType`.
+- `GET /api/v1/market-data/instrument-types` → 200; 10 tipova (Forex,
+  Commodity, CFD, Indices, Stocks, ETF, Bonds, TrustFunds, Options,
+  Crypto). Market-data endpointi imaju zasebnu deljenu kvotu 120/60s.
+
+**Odluka:**
+
+- `realizedCreditPct` je **keš (cash weight) u procentnim poenima** →
+  `LivePortfolio::$cashWeight` (`Percentage`, nikad negativan; odsutno ⇒
+  `null` = nepoznato, nikad 0). Radna interpretacija na 2 uzorka; ako
+  budući snapshot odstupi (Σ pozicija + keš daleko od 100), to se
+  prikazuje kao `unknown_weight`, ne skriva. `unrealizedCreditPct` se i
+  dalje ne koristi. Arhitektonsko pravilo da `LivePortfolio`/
+  `PortfolioPosition` ne nose sirova imena `realizedCreditPct`/
+  `unrealizedCreditPct` ostaje — keš je modeliran kao imenovani
+  `cashWeight`.
+- Sintetički `live-portfolio.json` dobija `realizedCreditPct: 0`
+  (pozicije već daju tačno 100), da fixture bude konzistentan sa D-037.
+- `EtoroClient::instrumentDisplayData(list<int>)` (1–100 id-jeva po
+  zahtevu, comma-separated) i `EtoroClient::instrumentTypes()`;
+  `InstrumentMetadataMapper` — `instrumentID` obavezan, ostala polja su
+  obogaćenje i degradiraju u `null`, nikad ne odbacuju red; prihvata obe
+  varijante `stocksIndustryID/Id`.
+- „Asset class“ u koncentraciji (PROJECT.md §13.6) = eToro instrument
+  type (`instrumentTypeID` → opis iz kataloga). Sektor (`stocksIndustryID`)
+  se čuva, ali se ne prikazuje dok nema kataloga industrija.

@@ -32,7 +32,17 @@ scaling, or otherwise deriving from any real captured API response.
   calendar days (weekends included, as zero gains), same conventions as
   the monthly file (D-035); leakage-scanned against the raw capture.
 - `live-portfolio.json` — 16 synthetic positions across 6 synthetic
-  instruments.
+  instruments. `realizedCreditPct` (the cash weight, D-037) is 0 because
+  the positions already sum to exactly 100; cash cases are exercised by
+  mutating a copy in tests.
+- `instrument-display-data.json` — 6 synthetic instruments matching the
+  live-portfolio instrument ids (`/api/v1/market-data/instruments`
+  shape, including the observed `stocksIndustryID` spelling and
+  `distributionType` field; synthetic names/symbols/exchange ids,
+  `.invalid` image URLs).
+- `instrument-types.json` — eToro's public instrument type catalogue
+  (`/api/v1/market-data/instrument-types`): generic reference values
+  (Forex, Stocks, ETF, …), not user data.
 
 ## What these fixtures preserve
 

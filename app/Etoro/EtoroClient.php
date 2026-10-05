@@ -38,6 +38,8 @@ class EtoroClient
      */
     private const MAX_ATTEMPTS = 3;
 
+    public const MAX_INSTRUMENT_IDS = 100;
+
     public function __construct(private readonly Factory $http) {}
 
     public function authenticatedUser(): EtoroApiResponse
@@ -91,6 +93,38 @@ class EtoroClient
             '/api/v2/portfolios/'.$this->pathSegment($username).'/gain/'.$granularity->value,
             $count !== null ? ['count' => $count] : [],
         );
+    }
+
+    /**
+     * Documented market-data instrument display data (OpenAPI
+     * `getMarketDataInstruments`). `instrumentIds` is documented as an
+     * `explode: false` array, i.e. comma-separated. Callers batch; at most
+     * MAX_INSTRUMENT_IDS ids per request keeps the URL bounded.
+     *
+     * @param  list<int>  $instrumentIds
+     */
+    public function instrumentDisplayData(array $instrumentIds): EtoroApiResponse
+    {
+        if ($instrumentIds === [] || count($instrumentIds) > self::MAX_INSTRUMENT_IDS) {
+            throw new InvalidArgumentException('Instrument display data needs between 1 and '.self::MAX_INSTRUMENT_IDS.' instrument ids.');
+        }
+
+        foreach ($instrumentIds as $instrumentId) {
+            if (! is_int($instrumentId) || $instrumentId < 1) {
+                throw new InvalidArgumentException('Instrument ids must be positive integers.');
+            }
+        }
+
+        return $this->get('/api/v1/market-data/instruments', ['instrumentIds' => implode(',', $instrumentIds)]);
+    }
+
+    /**
+     * Documented instrument type catalogue (OpenAPI
+     * `getMarketDataInstrumentTypes`), e.g. Stocks, ETF, Crypto.
+     */
+    public function instrumentTypes(): EtoroApiResponse
+    {
+        return $this->get('/api/v1/market-data/instrument-types');
     }
 
     public function userLivePortfolio(string $username): EtoroApiResponse

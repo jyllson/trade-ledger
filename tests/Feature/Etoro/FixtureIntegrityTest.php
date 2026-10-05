@@ -45,8 +45,8 @@ function collectStrings(mixed $data, array &$out): void
     }
 }
 
-it('has all six fixture files present and valid JSON', function () {
-    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'gain-history-daily.json', 'live-portfolio.json'] as $file) {
+it('has all eight fixture files present and valid JSON', function () {
+    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'gain-history-daily.json', 'live-portfolio.json', 'instrument-display-data.json', 'instrument-types.json'] as $file) {
         $path = fixtureDirFor($file).$file;
         expect($path)->toBeFile();
         json_decode(file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
@@ -230,7 +230,7 @@ it('contains no private storage paths, credential header names, or configured cr
         $forbidden[] = $userKey;
     }
 
-    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'gain-history-daily.json', 'live-portfolio.json'] as $file) {
+    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'gain-history-daily.json', 'live-portfolio.json', 'instrument-display-data.json', 'instrument-types.json'] as $file) {
         $raw = fixtureRaw($file);
         foreach ($forbidden as $needle) {
             expect($raw)->not->toContain($needle);
@@ -239,7 +239,7 @@ it('contains no private storage paths, credential header names, or configured cr
 });
 
 it('contains only synthetic .invalid URLs, never a real eToro or third-party domain', function () {
-    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'gain-history-daily.json', 'live-portfolio.json'] as $file) {
+    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'gain-history-daily.json', 'live-portfolio.json', 'instrument-display-data.json', 'instrument-types.json'] as $file) {
         $data = fixtureJson($file);
         $strings = [];
         collectStrings($data, $strings);
