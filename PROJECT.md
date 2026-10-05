@@ -1,7 +1,7 @@
 # TradeLedger — PROJECT.md
 
 **Status:** Draft v0.1<br>
-**Last verified:** 2026-08-24<br>
+**Last verified:** 2026-10-05<br>
 **Primary owner:** Slavko<br>
 **Working repository name:** `trade-ledger`
 
@@ -577,6 +577,15 @@ merged into `main` as a squash commit, SHA
 green. Product Milestone 2 is therefore formally complete. The next
 product milestone per §20 is Milestone 3 (performance analytics), which
 has not been started. See `docs/REVIEW_STATUS.md` for full detail.
+
+**Product Milestone 3 (§20, performance analytics) is COMPLETE** — merged
+into `main` as PR #8 (squash `6d0cc3c`, 2026-10-05). It added the v2 gain
+time-series client path, `App\Analytics\Calculators\{PerformanceCalculator,
+DrawdownCalculator, ConsistencyCalculator}`, `performance_points` storage,
+the queued `SyncTraderPerformanceJob`/`etoro:sync-performance` sync, and the
+trader performance UI — see `docs/DECISIONS.md` D-032–D-036 and
+`docs/REVIEW_STATUS.md`. Note (D-032): the v1 `/gain` endpoint returns
+percentage points, not fractions; analytics uses the v2 series only.
 
 The target-coverage stream described above completes, via a one-off CLI
 call against the live API, only the calculation portion of one Milestone 4

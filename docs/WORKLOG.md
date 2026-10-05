@@ -1637,3 +1637,17 @@ queue.
 - `php artisan test --compact`: 1538 total, 1534 passed, 4 skipped,
   1 poznato nepovezano upozorenje. PHPStan 0, Pint passed, `npm run build`
   OK.
+
+## 2026-10-05 — Milestone 3 merge (PR #8) i closeout
+
+- Vizuelni QA: headless Chrome (CDP preko ugrađenog Node WebSocket-a, bez
+  novih paketa) protiv izolovane sintetičke SQLite baze u `/private/tmp`
+  sa sintetičkim fixture podacima; OpenClaw browser blokira localhost po
+  policy-ju, pa nije korišćen. Nalaz: svetle linije tabele u dark modu →
+  ispravljeno (`rgba` border).
+- PR #8 otvoren, CI `ci` SUCCESS (1m05s), squash-merge u `main`:
+  `6d0cc3c`, `2026-10-05T12:31:41Z`.
+- Closeout: `docs/REVIEW_STATUS.md` (M3 COMPLETE), `PROJECT.md` §9 i
+  header datum, ovaj unos.
+- Privremeni QA artefakti (`/private/tmp/tradeledger-qa.sqlite`,
+  `/private/tmp/tl-qa/`) ostaju van repozitorijuma.

@@ -1,35 +1,43 @@
 # REVIEW_STATUS — TradeLedger
 
-**Trenutni implementation stream:** nijedan aktivan. Product Milestone 2
-(discovery i trader storage — `PROJECT.md` §20) je **COMPLETE** —
-implementacija (Checkpoint E–H2 na grani `codex/milestone-2-discovery-
-and-ui`), sva tri §20 acceptance kriterijuma (Checkpoint J), i integration
-(**PR #6, MERGED u `main`**) su svi završeni — ovaj post-merge zapis je
-Checkpoint K; vidi "Post-merge closeout — Checkpoint K" niže za pun
-detalj. Sledeći product
-milestone po `PROJECT.md` §20 je **Milestone 3 (performance analytics)** —
-vlasnik ga je izabrao kao sledeći (2026-10-05); **u toku** na grani
-`codex/milestone-3-performance-analytics` — Checkpoint A (izvor podataka
-i jedinice, D-032), B (kalkulatori, D-033), C/C2 (persistence + queued
-monthly/daily sync, D-034/D-035) i D (Filament UI, D-036) završeni;
-sledi zatvaranje M3 (acceptance + PR/merge).
-**Post-merge zapis:** Checkpoint K closeout je mergovan u `main` kao
-PR #7 (<https://github.com/jyllson/trade-ledger/pull/7>, merge SHA
-`9bf63be`, mergedAt `2026-08-24T08:33:36Z`, CI `ci` SUCCESS) — vidi
-`docs/WORKLOG.md` 2026-10-05.
-**Status:** PR #6
-(<https://github.com/jyllson/trade-ledger/pull/6>, "feat: complete
-Milestone 2 trader discovery") je **MERGED** u `main` — squash merge SHA
-`d107f6e21a2c5c9e122b783d782fee377bd59d69` (squash merge rezultat PR-a
-#6 — ne pretpostavljaj da je ovo i dalje `origin/main` tip; za trenutni
-`main` tip pogledaj `git rev-parse origin/main`), mergedAt
-`2026-08-24T08:15:42Z`. PR CI check `ci`: **SUCCESS** (1m04s). Grana
-`codex/milestone-2-discovery-and-ui`
-(Checkpoint E–J, tip `f3e0e8e` pre merge-a) je time integrisana u `main`;
-vidi istorijsku sekciju ispod za detaljan Checkpoint-po-Checkpoint zapis
-(vidi `docs/DECISIONS.md` D-018 za razliku između naziva grane/Checkpoint
-oznaka i product milestone numeracije u `PROJECT.md` §20).
-**Poslednje ažuriranje:** 2026-10-05 (post-Milestone 2 housekeeping)
+**Trenutni implementation stream:** nijedan aktivan.
+**Poslednje ažuriranje:** 2026-10-05 (Milestone 3 merge)
+
+## ✅ Product Milestone 3 — COMPLETE (performance analytics)
+
+- **PR #8** (<https://github.com/jyllson/trade-ledger/pull/8>, "feat:
+  complete Milestone 3 performance analytics") — **MERGED** u `main`,
+  squash SHA `6d0cc3c7f796c234a4b30740d1bc248f54d26414`, mergedAt
+  `2026-10-05T12:31:41Z`, CI `ci` SUCCESS (1m05s).
+- Isporučeno (checkpoint-i A–D na grani
+  `codex/milestone-3-performance-analytics`): v2 gain time-series kao izvor
+  (D-032, D-035), kalkulatori prinosa/drawdown-a/konzistentnosti (D-033),
+  `performance_points` + queued, rate-limited monthly/daily sync i
+  scheduler (D-034, D-035), Filament prikaz sa grafikonima i akcijom
+  „Sync performance“ (D-036).
+- `PROJECT.md` §20 M3 acceptance: (1) sve formule testirane ručno
+  izračunatim fixture-ima (nezavisno potvrđeno Python `Decimal`-om;
+  nezavisan code review — 3 sitna nalaza ispravljena); (2) prikazani
+  period i granularnost su eksplicitni svuda (mesečni drawdown označen
+  „not intraday“).
+- Vizuelni QA: headless-Chrome screenshot stranice tradera protiv
+  izolovane sintetičke SQLite baze (`/private/tmp`) — sve sekcije,
+  grafikoni i tabela renderovani; jedan kozmetički nalaz (svetle linije
+  tabele u dark modu) ispravljen pre merge-a. Ovo zatvara i ranije
+  neizvršen browser QA iz M2 za stranicu tradera.
+- Live eToro pozivi: 2 (monthly + daily proba), zabeleženi u privatnom
+  ledger-u; razvojna baza `trade_ledger` nije dirana; `.env` nije čitan.
+- Verifikacija na tipu grane: 1538 testova (1534 passed, 4 skipped),
+  PHPStan 0, Pint passed.
+
+**Šta sledi:** po `PROJECT.md` §20 sledeći je **Milestone 4 (portfolio i
+copy simulator)** — čeka odluku vlasnika. Za stvarno korišćenje M3 u
+radu potrebni su `php artisan queue:work` i (za dnevni raspored)
+`schedule:run` cron — operativni korak vlasnika.
+
+---
+
+## Istorija: Milestone 2 zapis (stanje pre M3)
 
 ## ✅ Product Milestone 2 — COMPLETE (implementacija, sva tri acceptance kriterijuma, i merge u main)
 
