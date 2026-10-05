@@ -28,6 +28,9 @@ scaling, or otherwise deriving from any real captured API response.
   2026-10-05 (see `docs/DECISIONS.md` D-032); all values, dates, and the
   username are hand-authored and passed a leakage scan against the raw
   capture.
+- `gain-history-daily.json` — synthetic v2 daily series: 14 consecutive
+  calendar days (weekends included, as zero gains), same conventions as
+  the monthly file (D-035); leakage-scanned against the raw capture.
 - `live-portfolio.json` — 16 synthetic positions across 6 synthetic
   instruments.
 

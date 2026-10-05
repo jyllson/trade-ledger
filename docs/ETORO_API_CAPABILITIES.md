@@ -141,7 +141,10 @@ privatan i git-ignorisan). Tačno **jedan** GET, odobren od vlasnika.
   v1 = procentni poeni, v2 = decimalni udeo (odnos tačno 100). Detalji i
   konvencije (delimičan prvi mesec, tekući mesec u toku): `docs/DECISIONS.md`
   D-032.
-- Klasifikacija: **works**. `daily` granularnost nije probana.
+- Klasifikacija: **works**.
+- Dodatni poziv istog dana: `gain/daily?count=1000` → 200, **works**;
+  1001 uzastopna kalendarska tačka (vikendi = 0), ista šema i jedinice
+  (D-035).
 
 ---
 

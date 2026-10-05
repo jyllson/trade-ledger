@@ -8,6 +8,7 @@ use App\Application\Traders\FindStoredTraderByUsername;
 use App\Application\Traders\SyncTraderPerformance;
 use App\Application\Traders\SyncTraderPerformanceStopReason;
 use App\Application\Traders\TraderUsername;
+use App\Etoro\GainGranularity;
 use App\Jobs\SyncTraderPerformanceJob;
 use App\Models\Trader;
 use App\Models\TraderStatus;
@@ -26,7 +27,7 @@ final class EtoroSyncPerformanceCommand extends Command
         {--watched : Sync every trader with status "watched"}
         {--now : Run synchronously in this process instead of queueing}';
 
-    protected $description = 'Sync monthly performance history for stored eToro traders (read-only; queued by default).';
+    protected $description = 'Sync monthly and daily performance history for stored eToro traders (read-only; queued by default).';
 
     public function __construct(
         private readonly FindStoredTraderByUsername $findStoredTraderByUsername,
@@ -120,14 +121,20 @@ final class EtoroSyncPerformanceCommand extends Command
         $rows = [];
 
         foreach ($traders as $trader) {
-            $result = $this->syncTraderPerformance->handle($trader);
-            $completed = $result->stopReason === SyncTraderPerformanceStopReason::Completed;
-            $failures += $completed ? 0 : 1;
+            foreach ([GainGranularity::Monthly, GainGranularity::Daily] as $granularity) {
+                $result = $this->syncTraderPerformance->handle($trader, $granularity);
+                $completed = $result->stopReason === SyncTraderPerformanceStopReason::Completed;
+                $failures += $completed ? 0 : 1;
 
-            $rows[] = [$trader->id, $result->stopReason->value, $result->storedPointCount, $result->importRun->id];
+                $rows[] = [$trader->id, $granularity->value, $result->stopReason->value, $result->storedPointCount, $result->importRun->id];
+
+                if (! $completed) {
+                    break;
+                }
+            }
         }
 
-        $this->table(['Trader ID', 'Result', 'Stored points', 'Import run'], $rows);
+        $this->table(['Trader ID', 'Granularity', 'Result', 'Stored points', 'Import run'], $rows);
 
         return $failures === 0 ? self::SUCCESS : self::FAILURE;
     }

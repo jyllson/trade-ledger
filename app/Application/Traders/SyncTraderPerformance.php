@@ -26,9 +26,9 @@ use Throwable;
 /**
  * Live, read-only performance sync for one stored trader
  * (docs/DECISIONS.md D-034):
- * EtoroClient::userGainHistory(monthly, 1000) -> GainHistoryMapper ->
- * exact username check -> the trader's stored monthly series is replaced
- * by the response (upsert + delete of periods no longer returned) in one
+ * EtoroClient::userGainHistory(granularity, 1000) -> GainHistoryMapper ->
+ * exact username check -> the trader's stored series of that granularity
+ * is replaced within the returned date range (see replaceSeries()) in one
  * transaction together with the ImportRun finalize.
  *
  * Creates exactly one `performance` ImportRun per call before the HTTP
@@ -41,22 +41,25 @@ final class SyncTraderPerformance
 
     private const TYPE = 'performance';
 
-    /** Documented maximum — one request returns the deepest monthly history. */
-    private const MONTHLY_COUNT = 1000;
+    /**
+     * Documented maximum — one request returns the full monthly history, or
+     * the latest ~1000 days of the daily series (D-035).
+     */
+    private const COUNT = 1000;
 
     public function __construct(
         private readonly EtoroClient $etoroClient,
         private readonly GainHistoryMapper $gainHistoryMapper,
     ) {}
 
-    public function handle(Trader $trader): SyncTraderPerformanceResult
+    public function handle(Trader $trader, GainGranularity $granularity = GainGranularity::Monthly): SyncTraderPerformanceResult
     {
-        $importRun = $this->createImportRun($trader);
+        $importRun = $this->createImportRun($trader, $granularity);
         $requestCount = 0;
 
         try {
             try {
-                $apiResponse = $this->etoroClient->userGainHistory($trader->username, GainGranularity::Monthly, self::MONTHLY_COUNT);
+                $apiResponse = $this->etoroClient->userGainHistory($trader->username, $granularity, self::COUNT);
                 $requestCount = $apiResponse->attemptCount;
             } catch (EtoroConfigurationException) {
                 return $this->finalize($importRun, SyncTraderPerformanceStopReason::ConfigurationError, 0);
@@ -67,7 +70,7 @@ final class SyncTraderPerformance
             }
 
             try {
-                $history = $this->gainHistoryMapper->map($apiResponse->payload, GainGranularity::Monthly);
+                $history = $this->gainHistoryMapper->map($apiResponse->payload, $granularity);
             } catch (EtoroMappingException) {
                 return $this->finalize($importRun, SyncTraderPerformanceStopReason::MappingFailed, $requestCount);
             }
@@ -78,7 +81,7 @@ final class SyncTraderPerformance
 
             return DB::transaction(function () use ($importRun, $trader, $history, $requestCount): SyncTraderPerformanceResult {
                 $syncedAt = now();
-                $stored = $this->replaceMonthlySeries($trader, $history, $syncedAt);
+                $stored = $this->replaceSeries($trader, $history, $syncedAt);
 
                 $trader->forceFill([
                     'performance_synced_at' => $syncedAt,
@@ -133,14 +136,26 @@ final class SyncTraderPerformance
     /**
      * @return int number of stored points
      */
-    private function replaceMonthlySeries(Trader $trader, GainHistory $history, CarbonInterface $syncedAt): int
+    /**
+     * Replaces the stored series WITHIN the returned date range: periods in
+     * the response are upserted, stored periods inside [first, last] that
+     * the response no longer contains are deleted, and periods outside the
+     * range are kept — the daily window slides forward, so older days must
+     * not be lost (D-035).
+     */
+    private function replaceSeries(Trader $trader, GainHistory $history, CarbonInterface $syncedAt): int
     {
+        if ($history->points === []) {
+            return 0;
+        }
+
+        $granularity = $this->granularity($history->granularity)->value;
         $rows = [];
 
         foreach ($history->points as $point) {
             $rows[] = [
                 'trader_id' => $trader->id,
-                'granularity' => ReturnPeriodGranularity::Monthly->value,
+                'granularity' => $granularity,
                 'period_start' => $point->date->format('Y-m-d'),
                 'gain_ppb' => $point->gain->partsPerBillion(),
                 'source' => PerformancePoint::SOURCE_ETORO_V2_GAIN,
@@ -150,18 +165,19 @@ final class SyncTraderPerformance
             ];
         }
 
-        $series = PerformancePoint::query()
-            ->where('trader_id', $trader->id)
-            ->where('granularity', ReturnPeriodGranularity::Monthly->value)
-            ->where('source', PerformancePoint::SOURCE_ETORO_V2_GAIN);
+        $periodStarts = array_column($rows, 'period_start');
 
-        (clone $series)
-            ->whereNotIn('period_start', array_column($rows, 'period_start'))
+        PerformancePoint::query()
+            ->where('trader_id', $trader->id)
+            ->where('granularity', $granularity)
+            ->where('source', PerformancePoint::SOURCE_ETORO_V2_GAIN)
+            ->whereBetween('period_start', [$periodStarts[0], $periodStarts[count($periodStarts) - 1]])
+            ->whereNotIn('period_start', $periodStarts)
             ->delete();
 
-        if ($rows !== []) {
+        foreach (array_chunk($rows, 500) as $chunk) {
             PerformancePoint::query()->upsert(
-                $rows,
+                $chunk,
                 ['trader_id', 'granularity', 'period_start', 'source'],
                 ['gain_ppb', 'synced_at', 'updated_at'],
             );
@@ -170,7 +186,12 @@ final class SyncTraderPerformance
         return count($rows);
     }
 
-    private function createImportRun(Trader $trader): ImportRun
+    private function granularity(GainGranularity $granularity): ReturnPeriodGranularity
+    {
+        return ReturnPeriodGranularity::from($granularity->value);
+    }
+
+    private function createImportRun(Trader $trader, GainGranularity $granularity): ImportRun
     {
         return ImportRun::create([
             'source' => self::SOURCE,
@@ -179,8 +200,8 @@ final class SyncTraderPerformance
             'metadata' => [
                 'query' => [
                     'trader_id' => $trader->id,
-                    'granularity' => GainGranularity::Monthly->value,
-                    'count' => self::MONTHLY_COUNT,
+                    'granularity' => $granularity->value,
+                    'count' => self::COUNT,
                 ],
             ],
             'request_count' => 0,

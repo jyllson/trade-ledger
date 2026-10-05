@@ -118,13 +118,13 @@ php artisan etoro:sync-performance <username> --now  # run in this process
 php artisan queue:work                             # process queued syncs
 ```
 
-Each sync is one read-only GET of the trader's monthly gain series
-(`/api/v2/portfolios/{username}/gain/monthly`), stored in
+Each sync makes two read-only GETs — the trader's monthly and daily gain
+series (`/api/v2/portfolios/{username}/gain/{monthly,daily}`) — stored in
 `performance_points` and recorded as a `performance` `ImportRun`. Queued
 jobs share one `etoro-api` rate limiter (`ETORO_REQUESTS_PER_MINUTE`). A
 daily 03:00 UTC `--watched` sync is scheduled; it only runs if
 `php artisan schedule:run` is triggered every minute (cron) and a queue
-worker is running. See `docs/DECISIONS.md` D-032–D-034.
+worker is running. See `docs/DECISIONS.md` D-032–D-035.
 
 ## Testing
 

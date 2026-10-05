@@ -10,6 +10,17 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Sleep;
 use Symfony\Component\Console\Output\BufferedOutput;
 
+/**
+ * Fakes both v2 gain endpoints with the synthetic monthly and daily fixtures.
+ */
+function fakeBothGainSeries(): void
+{
+    Http::fake([
+        'https://public-api.etoro.com/api/v2/portfolios/*/gain/monthly*' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/gain-history-monthly.json')), true), 200),
+        'https://public-api.etoro.com/api/v2/portfolios/*/gain/daily*' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/gain-history-daily.json')), true), 200),
+    ]);
+}
+
 function callSyncPerformance(array $parameters = []): array
 {
     $buffer = new BufferedOutput;
@@ -82,26 +93,30 @@ it('does nothing and queues nothing when the integration is disabled', function 
 });
 
 it('runs synchronously with --now and prints only sanitized outcomes, never gain values', function () {
-    Http::fake(['*' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/gain-history-monthly.json')), true), 200)]);
+    fakeBothGainSeries();
     Trader::factory()->create(['username' => 'trader_001']);
 
     [$exitCode, $output] = callSyncPerformance(['username' => 'trader_001', '--now' => true]);
 
     expect($exitCode)->toBe(0)
         ->and($output)->toContain('completed')
+        ->and($output)->toContain('monthly')
+        ->and($output)->toContain('daily')
         ->and($output)->toContain('26')
+        ->and($output)->toContain('14')
         ->and($output)->not->toContain('trader_001')
-        ->and($output)->not->toContain('0.0125');
+        ->and($output)->not->toContain('0.0125')->not->toContain('0.0031');
     Queue::assertNothingPushed();
 });
 
-it('returns a failure exit code with --now when a sync does not complete', function () {
+it('returns a failure exit code with --now when a sync does not complete, skipping the daily request', function () {
     Http::fake(['*' => Http::response([], 403)]);
     Trader::factory()->create(['username' => 'trader_001']);
 
     [$exitCode, $output] = callSyncPerformance(['username' => 'trader_001', '--now' => true]);
 
     expect($exitCode)->toBe(1)->and($output)->toContain('not_visible');
+    Http::assertSentCount(1);
 });
 
 it('schedules the watched-trader sync daily at 03:00 UTC', function () {

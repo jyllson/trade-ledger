@@ -3,6 +3,7 @@
 use App\Analytics\Data\ReturnPeriodGranularity;
 use App\Application\Traders\SyncTraderPerformance;
 use App\Application\Traders\SyncTraderPerformanceStopReason;
+use App\Etoro\GainGranularity;
 use App\Models\ImportRun;
 use App\Models\ImportRunStatus;
 use App\Models\PerformancePoint;
@@ -98,11 +99,11 @@ it('is idempotent: re-running the same response leaves the same rows', function 
         ->and(PerformancePoint::count())->toBe(26);
 });
 
-it('replaces the stored series: updates changed periods and removes periods no longer returned', function () {
+it('replaces the stored series within the returned range: updates changed periods and removes periods no longer returned', function () {
     $trader = performanceTrader();
     $first = gainHistoryPayload();
     $second = gainHistoryPayload();
-    array_shift($second['gains']);
+    array_splice($second['gains'], 10, 1);
     $second['gains'][24]['gain'] = 0.0321;
 
     Http::fakeSequence(GAIN_HISTORY_URL)->push($first, 200)->push($second, 200);
@@ -111,8 +112,39 @@ it('replaces the stored series: updates changed periods and removes periods no l
     app(SyncTraderPerformance::class)->handle($trader);
 
     expect(PerformancePoint::count())->toBe(25)
-        ->and(PerformancePoint::where('period_start', '2011-03-09')->exists())->toBeFalse()
+        ->and(PerformancePoint::where('period_start', $first['gains'][10]['date'])->exists())->toBeFalse()
         ->and(PerformancePoint::where('period_start', '2013-04-01')->value('gain_ppb'))->toBe(32_100_000);
+});
+
+it('keeps stored periods outside the returned range, so a sliding daily window never loses older days', function () {
+    $trader = performanceTrader();
+    $daily = json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/gain-history-daily.json')), true, flags: JSON_THROW_ON_ERROR);
+    $later = $daily;
+    $later['gains'] = array_slice($daily['gains'], 7);
+
+    Http::fakeSequence('https://public-api.etoro.com/api/v2/portfolios/*/gain/daily*')->push($daily, 200)->push($later, 200);
+
+    app(SyncTraderPerformance::class)->handle($trader, GainGranularity::Daily);
+    $result = app(SyncTraderPerformance::class)->handle($trader, GainGranularity::Daily);
+
+    expect($result->storedPointCount)->toBe(7)
+        ->and($trader->performancePoints()->where('granularity', 'daily')->count())->toBe(14)
+        ->and($result->importRun->metadata['query']['granularity'])->toBe('daily');
+});
+
+it('stores monthly and daily series side by side without interfering', function () {
+    $trader = performanceTrader();
+    Http::fake([
+        GAIN_HISTORY_URL => Http::response(gainHistoryPayload(), 200),
+        'https://public-api.etoro.com/api/v2/portfolios/*/gain/daily*' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/gain-history-daily.json')), true), 200),
+    ]);
+
+    app(SyncTraderPerformance::class)->handle($trader, GainGranularity::Monthly);
+    app(SyncTraderPerformance::class)->handle($trader, GainGranularity::Daily);
+    app(SyncTraderPerformance::class)->handle($trader, GainGranularity::Monthly);
+
+    expect($trader->performancePoints()->where('granularity', 'monthly')->count())->toBe(26)
+        ->and($trader->performancePoints()->where('granularity', 'daily')->count())->toBe(14);
 });
 
 it('never touches another trader’s stored series', function () {

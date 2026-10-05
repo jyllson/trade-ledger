@@ -45,8 +45,8 @@ function collectStrings(mixed $data, array &$out): void
     }
 }
 
-it('has all five fixture files present and valid JSON', function () {
-    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'live-portfolio.json'] as $file) {
+it('has all six fixture files present and valid JSON', function () {
+    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'gain-history-daily.json', 'live-portfolio.json'] as $file) {
         $path = fixtureDirFor($file).$file;
         expect($path)->toBeFile();
         json_decode(file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
@@ -147,6 +147,26 @@ it('starts the v2 monthly gain series with a partial first month and continues o
     }
 });
 
+it('has a v2 daily gain time-series covering every calendar day, weekends included', function () {
+    $history = fixtureJson('gain-history-daily.json');
+    $dates = array_column($history['gains'], 'date');
+
+    expect($history['granularity'])->toBe('daily')
+        ->and($dates)->toHaveCount(14);
+
+    for ($i = 1; $i < count($dates); $i++) {
+        expect((strtotime($dates[$i]) - strtotime($dates[$i - 1])) / 86400)->toEqual(1);
+    }
+
+    $compounded = 1.0;
+
+    foreach ($history['gains'] as $point) {
+        $compounded *= 1 + $point['gain'];
+    }
+
+    expect(abs(($compounded - 1) - $history['totalGain']))->toBeLessThan(0.000001);
+});
+
 it('has 16 positions with exactly 13 fields each and 6 unique instruments', function () {
     $lp = fixtureJson('live-portfolio.json');
 
@@ -210,7 +230,7 @@ it('contains no private storage paths, credential header names, or configured cr
         $forbidden[] = $userKey;
     }
 
-    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'live-portfolio.json'] as $file) {
+    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'gain-history-daily.json', 'live-portfolio.json'] as $file) {
         $raw = fixtureRaw($file);
         foreach ($forbidden as $needle) {
             expect($raw)->not->toContain($needle);
@@ -219,7 +239,7 @@ it('contains no private storage paths, credential header names, or configured cr
 });
 
 it('contains only synthetic .invalid URLs, never a real eToro or third-party domain', function () {
-    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'live-portfolio.json'] as $file) {
+    foreach (['rankings.json', 'public-profile.json', 'performance-history.json', 'gain-history-monthly.json', 'gain-history-daily.json', 'live-portfolio.json'] as $file) {
         $data = fixtureJson($file);
         $strings = [];
         collectStrings($data, $strings);

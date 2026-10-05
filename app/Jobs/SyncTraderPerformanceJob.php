@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Application\Traders\SyncTraderPerformance;
+use App\Application\Traders\SyncTraderPerformanceStopReason;
+use App\Etoro\GainGranularity;
 use App\Models\Trader;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -58,15 +60,29 @@ final class SyncTraderPerformanceJob implements ShouldBeUnique, ShouldQueue
         return Carbon::now()->addHours(self::RETRY_WINDOW_HOURS);
     }
 
+    /**
+     * Monthly first, then daily (D-035). Each granularity is its own
+     * idempotent sync with its own ImportRun; if either is temporarily
+     * unavailable the whole job is released and both re-run later. A final
+     * outcome (e.g. private) for monthly skips the daily request.
+     */
     public function handle(SyncTraderPerformance $syncTraderPerformance): void
     {
-        $result = $syncTraderPerformance->handle($this->trader);
+        foreach ([GainGranularity::Monthly, GainGranularity::Daily] as $granularity) {
+            $result = $syncTraderPerformance->handle($this->trader, $granularity);
 
-        if ($result->stopReason->isRetryable()) {
-            $this->release(min(
-                max($result->retryAfterSeconds ?? self::DEFAULT_RETRY_SECONDS * $this->attempts(), 1),
-                self::MAX_RETRY_SECONDS,
-            ));
+            if ($result->stopReason->isRetryable()) {
+                $this->release(min(
+                    max($result->retryAfterSeconds ?? self::DEFAULT_RETRY_SECONDS * $this->attempts(), 1),
+                    self::MAX_RETRY_SECONDS,
+                ));
+
+                return;
+            }
+
+            if ($result->stopReason !== SyncTraderPerformanceStopReason::Completed) {
+                return;
+            }
         }
     }
 }

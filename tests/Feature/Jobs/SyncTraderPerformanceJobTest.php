@@ -19,15 +19,31 @@ beforeEach(function () {
     Sleep::fake();
 });
 
-it('runs the sync and stores the series', function () {
-    Http::fake(['*' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/gain-history-monthly.json')), true), 200)]);
+it('syncs the monthly then the daily series', function () {
+    Http::fake([
+        '*/gain/monthly*' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/gain-history-monthly.json')), true), 200),
+        '*/gain/daily*' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/gain-history-daily.json')), true), 200),
+    ]);
     $trader = Trader::factory()->create(['username' => 'trader_001']);
 
     $job = (new SyncTraderPerformanceJob($trader))->withFakeQueueInteractions();
     app()->call([$job, 'handle']);
 
     $job->assertNotReleased();
-    expect(PerformancePoint::count())->toBe(26);
+    expect(PerformancePoint::where('granularity', 'monthly')->count())->toBe(26)
+        ->and(PerformancePoint::where('granularity', 'daily')->count())->toBe(14);
+});
+
+it('releases the whole job when the daily request is temporarily unavailable', function () {
+    Http::fake([
+        '*/gain/monthly*' => Http::response(json_decode(file_get_contents(base_path('tests/Fixtures/Etoro/gain-history-monthly.json')), true), 200),
+        '*/gain/daily*' => Http::response([], 429, ['Retry-After' => '30']),
+    ]);
+
+    $job = (new SyncTraderPerformanceJob(Trader::factory()->create(['username' => 'trader_001'])))->withFakeQueueInteractions();
+    app()->call([$job, 'handle']);
+
+    $job->assertReleased(delay: 30);
 });
 
 it('releases a rate-limited sync honouring Retry-After', function () {
@@ -55,6 +71,7 @@ it('does not release a private trader — the outcome is final', function () {
     app()->call([$job, 'handle']);
 
     $job->assertNotReleased();
+    Http::assertSentCount(1);
 });
 
 it('is unique per trader and uses the shared eToro rate limiter', function () {

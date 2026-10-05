@@ -1340,3 +1340,42 @@ jobs odmah)
   (PROJECT.md §16), `withoutOverlapping`. Radi samo uz `schedule:run`
   cron i aktivan queue worker.
 - Samo mesečna granularnost; dnevna čeka live potvrdu (D-032 tačka 6).
+
+## D-035: Dnevna serija — live potvrda i sinhronizacija
+
+**Datum:** 2026-10-05
+**Status:** usvojeno (Milestone 3, Checkpoint C2; live poziv iz dnevnog
+pool-a, 2/10)
+
+**Dokaz (jedan GET, `daily`, `count=1000`, isti trader kao D-032; samo
+agregati):** HTTP 200; ista šema kao mesečna (`username, granularity,
+totalGain, gains[]`); **1001** tačka (count + 1) bez rupa — svaki
+kalendarski dan, uključujući vikende (≈21% tačaka je tačno 0); gain je
+decimalni udeo sa ≤ 4 decimale; `totalGain` = složena serija (razlika
+~1.5e-7). Dnevne vrednosti složene po mesecu poklapaju se sa mesečnom
+serijom (medijana razlike 0.008 pp; 1/32 meseci > 0.1 pp — posledica
+zaokruživanja dnevnih vrednosti na 4 decimale). Poslednja tačka nije
+današnji dan.
+
+**Odluka:**
+
+- Sync po trader-u: prvo `monthly`, pa `daily` (svaki svoj `performance`
+  ImportRun sa `query.granularity`). Konačan neuspeh mesečnog (npr.
+  privatan) preskače dnevni zahtev; privremena greška bilo kog release-uje
+  ceo job (oba su idempotentna).
+- Zamena serije važi samo **unutar vraćenog opsega datuma** — dnevni
+  prozor od ~1000 dana klizi, pa se stariji sačuvani dani nikad ne brišu.
+  Za mesečnu (puna istorija) ovo je isto kao potpuna zamena.
+- Dnevni drawdown se prikazuje kao „dnevni, poslednjih N dana“ sa
+  eksplicitnim opsegom; dublja dnevna istorija bi zahtevala
+  `minDate`/`maxDate` straničenje (nije implementirano). Mesečna
+  statistika (konzistentnost, trailing) i dalje koristi mesečnu seriju —
+  dnevna se ne agregira u mesečnu.
+- Budžet: 2 zahteva po trader-u po sync-u; dnevni scheduled sync watched
+  trader-a time troši 2 × broj watched trader-a zahteva kroz zajednički
+  `etoro-api` limiter. Napomena: ovo su automatizovani produkcijski
+  pozivi koje vlasnik pokreće uključivanjem worker-a/scheduler-a — ne
+  troše agentov dnevni pool za razvoj.
+- Novi sintetički fixture `tests/Fixtures/Etoro/gain-history-daily.json`
+  (14 uzastopnih dana, vikend nule); leakage scan protiv raw snimka: 0
+  preklapanja.
