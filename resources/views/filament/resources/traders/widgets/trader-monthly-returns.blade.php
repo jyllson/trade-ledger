@@ -20,7 +20,7 @@
                     </thead>
                     <tbody>
                         @foreach ($rows as $row)
-                            <tr style="border-top: 1px solid var(--gray-200);">
+                            <tr style="border-top: 1px solid rgba(127, 127, 127, 0.2);">
                                 <td style="padding: 0.25rem 0.5rem; font-weight: 600;">{{ $row['year'] }}</td>
                                 @foreach ($row['months'] as $cell)
                                     @php
