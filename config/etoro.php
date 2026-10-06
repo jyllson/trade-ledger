@@ -36,7 +36,21 @@ return [
 
     'allow_write' => env('ETORO_ALLOW_WRITE', false),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Request budget (per HTTP attempt, retries included — D-039)
+    |--------------------------------------------------------------------------
+    |
+    | `requests_per_minute` covers the shared default eToro quota (60/60 s);
+    | market-data endpoints have their own quota (120/60 s) and budget. The
+    | transport never waits for a permit: without one the request is reported
+    | as rate limited (retryable) without being sent.
+    |
+    */
+
     'requests_per_minute' => env('ETORO_REQUESTS_PER_MINUTE', 45),
+
+    'market_data_requests_per_minute' => 90,
 
     'timeout_seconds' => env('ETORO_TIMEOUT_SECONDS', 20),
 

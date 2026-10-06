@@ -39,7 +39,7 @@ final class SyncTraderPerformance
 {
     private const SOURCE = 'etoro';
 
-    private const TYPE = 'performance';
+    public const TYPE = 'performance';
 
     /**
      * Documented maximum — one request returns the full monthly history, or
@@ -52,9 +52,13 @@ final class SyncTraderPerformance
         private readonly GainHistoryMapper $gainHistoryMapper,
     ) {}
 
-    public function handle(Trader $trader, GainGranularity $granularity = GainGranularity::Monthly): SyncTraderPerformanceResult
+    /**
+     * @param  string|null  $queueJobUuid  set by SyncTraderPerformanceJob so an
+     *                                     interrupted attempt's run can be closed (D-040)
+     */
+    public function handle(Trader $trader, GainGranularity $granularity = GainGranularity::Monthly, ?string $queueJobUuid = null): SyncTraderPerformanceResult
     {
-        $importRun = $this->createImportRun($trader, $granularity);
+        $importRun = $this->createImportRun($trader, $granularity, $queueJobUuid);
         $requestCount = 0;
 
         try {
@@ -191,7 +195,7 @@ final class SyncTraderPerformance
         return ReturnPeriodGranularity::from($granularity->value);
     }
 
-    private function createImportRun(Trader $trader, GainGranularity $granularity): ImportRun
+    private function createImportRun(Trader $trader, GainGranularity $granularity, ?string $queueJobUuid): ImportRun
     {
         return ImportRun::create([
             'source' => self::SOURCE,
@@ -203,6 +207,7 @@ final class SyncTraderPerformance
                     'granularity' => $granularity->value,
                     'count' => self::COUNT,
                 ],
+                ...($queueJobUuid !== null ? ['queue_job_uuid' => $queueJobUuid] : []),
             ],
             'request_count' => 0,
             'success_count' => 0,

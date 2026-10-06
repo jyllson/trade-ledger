@@ -1,0 +1,136 @@
+{
+    "instrumentDisplayDatas": [
+        {
+            "distributionType": "synthetic",
+            "exchangeID": 900,
+            "hasExpirationDate": false,
+            "images": [
+                {
+                    "instrumentID": 500001,
+                    "width": 50,
+                    "height": 50,
+                    "uri": "https://example.invalid/instruments/500001.png",
+                    "backgroundColor": "#000000",
+                    "textColor": "#FFFFFF"
+                }
+            ],
+            "instrumentDisplayName": "Synthetic Equity Alpha",
+            "instrumentID": 500001,
+            "instrumentTypeID": 5,
+            "isInternalInstrument": false,
+            "priceSource": "Synthetic",
+            "stocksIndustryID": 70,
+            "symbolFull": "SYNA"
+        },
+        {
+            "distributionType": "synthetic",
+            "exchangeID": 901,
+            "hasExpirationDate": false,
+            "images": [
+                {
+                    "instrumentID": 500002,
+                    "width": 50,
+                    "height": 50,
+                    "uri": "https://example.invalid/instruments/500002.png",
+                    "backgroundColor": "#000000",
+                    "textColor": "#FFFFFF"
+                }
+            ],
+            "instrumentDisplayName": "Synthetic Equity Beta",
+            "instrumentID": 500002,
+            "instrumentTypeID": 5,
+            "isInternalInstrument": false,
+            "priceSource": "Synthetic",
+            "stocksIndustryID": 71,
+            "symbolFull": "SYNB"
+        },
+        {
+            "distributionType": "synthetic",
+            "exchangeID": 902,
+            "hasExpirationDate": false,
+            "images": [
+                {
+                    "instrumentID": 500003,
+                    "width": 50,
+                    "height": 50,
+                    "uri": "https://example.invalid/instruments/500003.png",
+                    "backgroundColor": "#000000",
+                    "textColor": "#FFFFFF"
+                }
+            ],
+            "instrumentDisplayName": "Synthetic Index Fund",
+            "instrumentID": 500003,
+            "instrumentTypeID": 6,
+            "isInternalInstrument": false,
+            "priceSource": "Synthetic",
+            "stocksIndustryID": null,
+            "symbolFull": "SYNIDX"
+        },
+        {
+            "distributionType": "synthetic",
+            "exchangeID": 903,
+            "hasExpirationDate": false,
+            "images": [
+                {
+                    "instrumentID": 500004,
+                    "width": 50,
+                    "height": 50,
+                    "uri": "https://example.invalid/instruments/500004.png",
+                    "backgroundColor": "#000000",
+                    "textColor": "#FFFFFF"
+                }
+            ],
+            "instrumentDisplayName": "Synthetic Coin",
+            "instrumentID": 500004,
+            "instrumentTypeID": 10,
+            "isInternalInstrument": false,
+            "priceSource": "Synthetic",
+            "stocksIndustryID": null,
+            "symbolFull": "SYNC"
+        },
+        {
+            "distributionType": "synthetic",
+            "exchangeID": 904,
+            "hasExpirationDate": false,
+            "images": [
+                {
+                    "instrumentID": 500005,
+                    "width": 50,
+                    "height": 50,
+                    "uri": "https://example.invalid/instruments/500005.png",
+                    "backgroundColor": "#000000",
+                    "textColor": "#FFFFFF"
+                }
+            ],
+            "instrumentDisplayName": "Synthetic Metal",
+            "instrumentID": 500005,
+            "instrumentTypeID": 2,
+            "isInternalInstrument": false,
+            "priceSource": "Synthetic",
+            "stocksIndustryID": null,
+            "symbolFull": "SYNM"
+        },
+        {
+            "distributionType": "synthetic",
+            "exchangeID": 905,
+            "hasExpirationDate": false,
+            "images": [
+                {
+                    "instrumentID": 500006,
+                    "width": 50,
+                    "height": 50,
+                    "uri": "https://example.invalid/instruments/500006.png",
+                    "backgroundColor": "#000000",
+                    "textColor": "#FFFFFF"
+                }
+            ],
+            "instrumentDisplayName": "Synthetic Equity Gamma",
+            "instrumentID": 500006,
+            "instrumentTypeID": 5,
+            "isInternalInstrument": false,
+            "priceSource": "Synthetic",
+            "stocksIndustryID": 75,
+            "symbolFull": "SYNG"
+        }
+    ]
+}

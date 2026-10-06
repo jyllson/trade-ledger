@@ -119,6 +119,7 @@ final class EtoroSyncPerformanceCommand extends Command
     private function runNow(array $traders): int
     {
         $failures = 0;
+        $retryable = 0;
         $rows = [];
 
         foreach ($traders as $trader) {
@@ -126,6 +127,7 @@ final class EtoroSyncPerformanceCommand extends Command
                 $result = $this->syncTraderPerformance->handle($trader, $granularity);
                 $completed = $result->stopReason === SyncTraderPerformanceStopReason::Completed;
                 $failures += $completed ? 0 : 1;
+                $retryable += $result->stopReason->isRetryable() ? 1 : 0;
 
                 $rows[] = [$trader->id, $granularity->value, $result->stopReason->value, $result->storedPointCount, $result->importRun->id];
 
@@ -136,6 +138,10 @@ final class EtoroSyncPerformanceCommand extends Command
         }
 
         $this->table(['Trader ID', 'Granularity', 'Result', 'Stored points', 'Import run'], $rows);
+
+        if ($retryable > 0) {
+            $this->components->warn('Temporarily unavailable (eToro or the local request budget, D-039): nothing waited. Re-run later, or queue the sync instead of --now.');
+        }
 
         return $failures === 0 ? self::SUCCESS : self::FAILURE;
     }

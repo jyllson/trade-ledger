@@ -69,6 +69,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Display Timezone
+    |--------------------------------------------------------------------------
+    |
+    | Timestamps are stored and calculated in UTC ("timezone" above). Every
+    | timestamp shown in the admin panel is converted to this zone and
+    | labelled with its abbreviation (PROJECT.md §9; docs/DECISIONS.md D-046).
+    |
+    */
+
+    'display_timezone' => 'Europe/Malta',
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------
     |

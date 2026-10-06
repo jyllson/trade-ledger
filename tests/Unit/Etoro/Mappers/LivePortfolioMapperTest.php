@@ -364,6 +364,51 @@ it('rejects a malformed openTimestamp', function (string $raw): void {
     'trailing garbage' => ['2012-01-10T09:15:00Zxyz'],
 ]);
 
+it('rejects malformed fractional-second openTimestamps', function (string $raw): void {
+    $fixture = checkpointBLivePortfolioFixture();
+    $fixture['positions'][0]['openTimestamp'] = $raw;
+
+    $exception = expectCheckpointBLivePortfolioMappingException(fn () => (new LivePortfolioMapper)->map($fixture));
+
+    expect($exception->reason)->toBe(EtoroMappingErrorReason::MalformedTimestamp);
+    expect($exception->fieldPath)->toBe('positions[0].openTimestamp');
+})->with([
+    'dot without digits' => ['2012-01-10T09:15:00.Z'],
+    'more than 7 fraction digits' => ['2012-01-10T09:15:00.12345678Z'],
+    'fraction without Z' => ['2012-01-10T09:15:00.123'],
+    'fraction with offset' => ['2012-01-10T09:15:00.123+02:00'],
+    'fraction on invalid date' => ['2012-02-30T09:15:00.123Z'],
+    'comma separator' => ['2012-01-10T09:15:00,123Z'],
+]);
+
+it('accepts fractional-second openTimestamps as observed live (D-044)', function (string $raw, string $expected): void {
+    $fixture = checkpointBLivePortfolioFixture();
+    $fixture['positions'][0]['openTimestamp'] = $raw;
+
+    $openedAt = (new LivePortfolioMapper)->map($fixture)->positions[0]->openedAt;
+
+    expect($openedAt?->format('Y-m-d\TH:i:s.u'))->toBe($expected);
+    expect($openedAt?->getTimezone()->getName())->toBe('UTC');
+})->with([
+    'one digit' => ['2012-01-10T09:15:00.9Z', '2012-01-10T09:15:00.900000'],
+    'two digits' => ['2012-01-10T09:15:00.38Z', '2012-01-10T09:15:00.380000'],
+    'three digits' => ['2012-01-10T09:15:00.457Z', '2012-01-10T09:15:00.457000'],
+    'six digits' => ['2012-01-10T09:15:00.123456Z', '2012-01-10T09:15:00.123456'],
+    'seven digits (sub-microsecond dropped)' => ['2012-01-10T09:15:00.1234567Z', '2012-01-10T09:15:00.123456'],
+]);
+
+it('maps the synthetic fractional-timestamp live shape end to end', function (): void {
+    $json = file_get_contents(__DIR__.'/../../../Fixtures/Etoro/live-portfolio-fractional-timestamps.json');
+    $payload = json_decode($json, associative: true, flags: JSON_THROW_ON_ERROR);
+
+    $portfolio = (new LivePortfolioMapper)->map($payload);
+
+    expect($portfolio->positions)->toHaveCount(4);
+    expect(array_map(fn (PortfolioPosition $position): ?string => $position->openedAt?->format('Y-m-d H:i:s.v'), $portfolio->positions))
+        ->toBe(['2021-03-04 14:22:31.457', '2022-11-17 09:05:12.380', '2023-06-30 20:59:59.900', '2024-01-02 08:00:00.000']);
+    expect($portfolio->cashWeight?->partsPerBillion())->toBe(45_000_000);
+});
+
 it('rejects an openTimestamp containing a null byte as MalformedTimestamp, not a raw ValueError', function (): void {
     $fixture = checkpointBLivePortfolioFixture();
     $fixture['positions'][0]['openTimestamp'] = "2012-01-10T09:15:00Z\0sentinel-null-byte";
@@ -431,3 +476,29 @@ it('does not include a mutated sentinel value in mapper exception messages', fun
 
     expect($exception->getMessage())->not->toContain('sentinel-marker-do-not-leak');
 });
+
+it('maps realizedCreditPct as the cash weight in percentage points (D-037)', function (): void {
+    $fixture = checkpointBLivePortfolioFixture();
+    $fixture['realizedCreditPct'] = 2.5;
+
+    $portfolio = (new LivePortfolioMapper)->map($fixture);
+
+    expect($portfolio->cashWeight?->partsPerBillion())->toBe(25_000_000);
+});
+
+it('maps an absent or null realizedCreditPct as an unknown cash weight, never zero', function (): void {
+    $fixture = checkpointBLivePortfolioFixture();
+    unset($fixture['realizedCreditPct']);
+    $absent = (new LivePortfolioMapper)->map($fixture);
+    $fixture['realizedCreditPct'] = null;
+    $null = (new LivePortfolioMapper)->map($fixture);
+
+    expect($absent->cashWeight)->toBeNull()->and($null->cashWeight)->toBeNull();
+});
+
+it('rejects a negative or non-numeric realizedCreditPct', function (mixed $value): void {
+    $fixture = checkpointBLivePortfolioFixture();
+    $fixture['realizedCreditPct'] = $value;
+
+    expect(fn () => (new LivePortfolioMapper)->map($fixture))->toThrow(EtoroMappingException::class);
+})->with([-0.5, '2.5', true]);

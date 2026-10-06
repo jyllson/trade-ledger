@@ -3,8 +3,11 @@
 use App\Filament\Resources\Traders\Pages\ListTraders;
 use App\Filament\Resources\Traders\Pages\ViewTrader;
 use App\Filament\Resources\Traders\Schemas\TraderInfolist;
+use App\Filament\Resources\Traders\Schemas\TraderPortfolioSection;
 use App\Filament\Resources\Traders\Tables\TradersTable;
 use App\Filament\Resources\Traders\TraderResource;
+use App\Filament\Resources\Traders\Widgets\CopyAmountSimulator;
+use App\Filament\Resources\Traders\Widgets\TraderPortfolio;
 use Illuminate\Support\Facades\File;
 
 /**
@@ -22,6 +25,9 @@ function checkpointH2TraderFilamentClasses(): array
         ViewTrader::class,
         TraderInfolist::class,
         TradersTable::class,
+        TraderPortfolioSection::class,
+        TraderPortfolio::class,
+        CopyAmountSimulator::class,
     ];
 }
 

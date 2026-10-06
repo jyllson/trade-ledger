@@ -38,7 +38,12 @@ class EtoroClient
      */
     private const MAX_ATTEMPTS = 3;
 
-    public function __construct(private readonly Factory $http) {}
+    public const MAX_INSTRUMENT_IDS = 100;
+
+    public function __construct(
+        private readonly Factory $http,
+        private readonly EtoroRequestThrottle $throttle = new EtoroRequestThrottle,
+    ) {}
 
     public function authenticatedUser(): EtoroApiResponse
     {
@@ -93,6 +98,41 @@ class EtoroClient
         );
     }
 
+    /**
+     * Documented market-data instrument display data (OpenAPI
+     * `getMarketDataInstruments`). `instrumentIds` is documented as an
+     * `explode: false` array, i.e. comma-separated. Callers batch; at most
+     * MAX_INSTRUMENT_IDS ids per request keeps the URL bounded.
+     *
+     * Typed loosely on purpose: every element is checked at runtime, since
+     * the ids originate from API payloads.
+     *
+     * @param  array<int, mixed>  $instrumentIds
+     */
+    public function instrumentDisplayData(array $instrumentIds): EtoroApiResponse
+    {
+        if ($instrumentIds === [] || count($instrumentIds) > self::MAX_INSTRUMENT_IDS) {
+            throw new InvalidArgumentException('Instrument display data needs between 1 and '.self::MAX_INSTRUMENT_IDS.' instrument ids.');
+        }
+
+        foreach ($instrumentIds as $instrumentId) {
+            if (! is_int($instrumentId) || $instrumentId < 1) {
+                throw new InvalidArgumentException('Instrument ids must be positive integers.');
+            }
+        }
+
+        return $this->get('/api/v1/market-data/instruments', ['instrumentIds' => implode(',', $instrumentIds)]);
+    }
+
+    /**
+     * Documented instrument type catalogue (OpenAPI
+     * `getMarketDataInstrumentTypes`), e.g. Stocks, ETF, Crypto.
+     */
+    public function instrumentTypes(): EtoroApiResponse
+    {
+        return $this->get('/api/v1/market-data/instrument-types');
+    }
+
     public function userLivePortfolio(string $username): EtoroApiResponse
     {
         $this->assertUsernameProvided($username);
@@ -125,6 +165,10 @@ class EtoroClient
         $finalAttemptDurationMs = 0.0;
 
         for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
+            // One permit per HTTP attempt, retries included (D-039). A refused
+            // retry still reports the attempts already sent.
+            $this->throttle->acquire($path, $attempt - 1, $requestId);
+
             $requestId = (string) Str::uuid();
             $attemptStartedAt = microtime(true);
 

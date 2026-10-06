@@ -1,6 +1,6 @@
 {
-    "realizedCreditPct": 2.5,
-    "unrealizedCreditPct": 1.5,
+    "realizedCreditPct": 0,
+    "unrealizedCreditPct": 0,
     "positions": [
         {
             "positionId": 700001,

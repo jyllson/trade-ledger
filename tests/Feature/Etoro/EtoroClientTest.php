@@ -510,3 +510,33 @@ it('rejects a blank username for the gain time-series without sending a request'
 
     Http::assertNothingSent();
 });
+
+it('requests instrument display data with comma-separated ids', function () {
+    Http::fake(['*' => Http::response(['instrumentDisplayDatas' => []], 200)]);
+
+    app(EtoroClient::class)->instrumentDisplayData([1001, 18, 100000]);
+
+    Http::assertSent(fn (Request $request) => $request->method() === 'GET'
+        && $request->url() === 'https://public-api.etoro.com/api/v1/market-data/instruments?instrumentIds=1001%2C18%2C100000');
+});
+
+it('rejects an empty, oversized, or non-positive instrument id list without sending a request', function (array $ids) {
+    Http::fake();
+
+    expect(fn () => app(EtoroClient::class)->instrumentDisplayData($ids))->toThrow(InvalidArgumentException::class);
+
+    Http::assertNothingSent();
+})->with([
+    'empty' => [[]],
+    'too many' => [range(1, 101)],
+    'zero' => [[0]],
+    'negative' => [[-5]],
+]);
+
+it('requests the instrument type catalogue', function () {
+    Http::fake(['*' => Http::response(['instrumentTypes' => []], 200)]);
+
+    app(EtoroClient::class)->instrumentTypes();
+
+    Http::assertSent(fn (Request $request) => $request->url() === 'https://public-api.etoro.com/api/v1/market-data/instrument-types');
+});

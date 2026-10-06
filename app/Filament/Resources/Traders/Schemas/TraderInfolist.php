@@ -92,6 +92,7 @@ class TraderInfolist
                     ])
                     ->columns(2),
                 ...TraderPerformanceSection::make(),
+                ...TraderPortfolioSection::make(),
             ]);
     }
 }

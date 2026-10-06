@@ -148,6 +148,19 @@ privatan i git-ignorisan). Tačno **jedan** GET, odobren od vlasnika.
 
 ---
 
+## Run #4 — 2026-10-05 (M4 Checkpoint A, tinker, 3 GET-a iz pool-a)
+
+| Sposobnost | Metod | Path | HTTP status | Klasifikacija |
+|---|---|---|---|---|
+| Trader live portfolio (drugi uzorak) | GET | `/api/v1/user-info/people/{username}/portfolio/live` | 200 | works |
+| Instrument display data | GET | `/api/v1/market-data/instruments?instrumentIds=…` | 200 | works |
+| Instrument types | GET | `/api/v1/market-data/instrument-types` | 200 | works |
+
+Nalazi (keš = `realizedCreditPct`, polja instrumenata, katalog tipova):
+`docs/DECISIONS.md` D-037.
+
+---
+
 ## Development status (ažurirano 2026-08-06)
 
 Na grani `milestone/2-etoro-domain-model` (Checkpoint A–E, vidi

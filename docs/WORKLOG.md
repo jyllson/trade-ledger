@@ -1651,3 +1651,364 @@ queue.
   header datum, ovaj unos.
 - Privremeni QA artefakti (`/private/tmp/tradeledger-qa.sqlite`,
   `/private/tmp/tl-qa/`) ostaju van repozitorijuma.
+
+## 2026-10-05 — Milestone 4, Checkpoint B: portfolio persistence
+
+### Urađeno (D-038)
+
+- Migracije: `instruments`, `portfolio_snapshots` (+ `traders.portfolio_synced_at`,
+  `traders.portfolio_visibility`), `portfolio_positions`; težine u ppb,
+  bez `raw_payload`/`open_rate`/`net_profit`, kratka imena indeksa.
+  Modeli `Instrument`, `PortfolioSnapshot`, `PortfolioPosition` + factory-ji;
+  `Trader::portfolioSnapshots()` / `latestPortfolioSnapshot()`.
+- `App\Application\Traders\SyncTraderPortfolio` (live portfolio →
+  snapshot + pozicije u redosledu payload-a, `source_hash`, idempotentno
+  prema poslednjem snapshot-u) i `EnrichInstrumentMetadata` (best-effort,
+  batch ≤ 100, katalog tipova za asset class, osvežavanje posle 7 dana).
+- `SyncTraderPortfolioJob`, `QueueTraderPortfolioSync`,
+  `etoro:sync-portfolio {username?} {--watched} {--now}`; ImportRun tip
+  `portfolio` (`partial` kad metapodaci zakažu).
+- Scheduler unos namerno nije dodat (D-038 t. 7).
+- Testovi: importer (mapiranje, ppb/rate/redosled, idempotentnost,
+  A→B→A, šta ulazi u hash, prazan portfolio, nepoznat keš, duplikat
+  positionId, metadata neuspesi/delimični/batch/refresh, 403/404/429,
+  mapping, konfiguracija, samo GET), job, komanda, arhitektura, modeli.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1609 total, 1605 passed, 4 skipped,
+  1 poznato nepovezano upozorenje (postoji i bez ovih izmena).
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+- `php artisan migrate` na `trade_ledger` (MySQL): 3 nove migracije
+  DONE. Import sa `Http::fake` na MySQL u vraćenoj transakciji:
+  completed, idempotentan, 16 pozicija, asset class popunjen; posle
+  rollback-a 0 redova.
+
+### Bezbednost
+
+Bez live eToro poziva (pool i dalje 5/10); bez `.env`; bez novih
+paketa; nijedan write/trading poziv, `EtoroWriteGuard` netaknut.
+
+### Sledeće
+
+Checkpoint C — koncentracija i simulator iz SAČUVANOG snapshot-a;
+odluka o retenciji snapshot-a i uključivanju scheduler-a.
+
+## 2026-10-05 — Milestone 4, Checkpoint B: ispravke posle review-a
+
+### Urađeno
+
+- **Nalaz 1 (D-039):** rate limiting po HTTP pokušaju. Novi
+  `App\Etoro\EtoroRequestThrottle` (pozvan pre svakog pokušaja u
+  `EtoroClient::get()`, i za retry-je), limiteri `etoro-api` i
+  `etoro-market-data`, ograničeno blokirajuće čekanje (20 s), pa
+  `EtoroRequestException::localBudgetExhausted()` (RateLimited →
+  retryable, job release). `RateLimited` middleware uklonjen iz
+  `SyncTraderPerformanceJob` i `SyncTraderPortfolioJob`.
+- **Nalaz 2:** `EnrichInstrumentMetadata` označava instrument
+  obogaćenim samo uz validan type ID i odgovarajući unos u katalogu;
+  inače ostaje kandidat, run je `partial`. D-038 t. 5/6 dopunjene.
+- Testovi: `tests/Feature/Etoro/EtoroRequestThrottleTest.php` (N zahteva
+  = N dozvola, retry-ji se broje, zaseban market-data budžet, čekanje,
+  odbijanje bez slanja, sinhrona `--now` putanja, release oba job-a);
+  portfolio: katalog bez tipa, nedostajući/neispravan type ID (4
+  varijante), ponovni pokušaj na sledećem importu; job testovi
+  ažurirani (bez middleware-a).
+
+### Verifikacija
+
+- `php artisan test --compact`: 1623 total, 1619 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez live eToro poziva; bez `.env`/`.env.example`; bez novih paketa.
+
+## 2026-10-05 — Milestone 4, Checkpoint B: ispravke posle review-a (runda 2)
+
+### Urađeno
+
+- **Nalaz 1 (D-039 t. 3 revidirana):** `EtoroRequestThrottle::acquire()`
+  više ne čeka — bez dozvole odmah `localBudgetExhausted()` (retryable,
+  zahtev se ne šalje). Throttle ne doprinosi trajanju job-a/web zahteva;
+  ImportRun se finalizuje kao `failed`/`temporarily_unavailable`, job se
+  release-uje. `etoro:sync-performance`/`etoro:sync-portfolio --now`
+  ispisuju upozorenje „Re-run later…“ kad je bilo privremeno
+  nedostupnih. Uklonjen `etoro.rate_limit_max_wait_seconds`.
+- **Nalaz 2 (D-038 t. 5):** `EnrichInstrumentMetadata` upisuje
+  klasifikaciju (`instrument_type_id`, `asset_class`,
+  `metadata_synced_at`) kao celinu: razrešen tip → nova celina;
+  nerazrešen nepromenjen tip → prethodna celina ostaje; nerazrešen
+  promenjen/nedostajući tip → novi type ID, `asset_class` i timestamp
+  obrisani. Run `partial`.
+- **Nalaz 3:** lokalno odbijen retry nosi broj već poslatih pokušaja i
+  request ID poslednjeg (`localBudgetExhausted(..., $attemptCount,
+  $requestId)`), pa `ImportRun.request_count` nije 0.
+- Testovi: odbijanje bez čekanja/slanja (`Sleep::assertNeverSlept`),
+  503 → lokalno odbijen retry (`attemptCount` 1, `request_count` 1),
+  `--now` upozorenje i `failed` run, job-ovi bez spavanja i bez
+  `running` run-a; tri regresiona testa za refresh klasifikacije.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1627 total, 1623 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
+
+## 2026-10-05 — Milestone 4, Checkpoint B: timeout guard za sync job-ove (D-040)
+
+### Urađeno
+
+- `SyncTraderPerformanceJob`, `SyncTraderPortfolioJob`: `$timeout = 80`
+  (< `retry_after` 90 s, > worker 60 s), `$failOnTimeout = true`,
+  `failed(?Throwable)` i čišćenje run-ova prethodnog ubijenog pokušaja na
+  početku `handle()`.
+- Novi `App\Application\Imports\FailInterruptedImportRuns`: `running`
+  run-ove sa `metadata.queue_job_uuid` datog job-a zatvara kao `failed`
+  (`stop_reason = interrupted`, `interruption` = timeout / max_attempts /
+  job_failed / attempt_interrupted).
+- `SyncTraderPerformance::handle()` i `SyncTraderPortfolio::handle()`:
+  opcioni `$queueJobUuid` → `metadata.queue_job_uuid`; `TYPE` konstante
+  javne.
+- Testovi (oba job-a): `failed()` zatvara `running` run (3 vrste
+  izuzetka), ne dira završen run, run drugog job-a ni sinhroni run, bez
+  queue job-a ne radi ništa; `handle()` taguje run-ove i zatvara siroče
+  prethodnog pokušaja; `timeout < retry_after`, `failOnTimeout`; kroz
+  pravi database queue: payload nosi `timeout`/`failOnTimeout`, a
+  `Job::fail(TimeoutExceededException)` (put worker-ovog timeout
+  handler-a) zatvara run. Helper `fakeQueueJobWithUuid()` u
+  `tests/Pest.php` (plain `FakeJob` nema UUID).
+
+### Verifikacija
+
+- `php artisan test --compact`: 1643 total, 1639 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
+
+## 2026-10-06 — Milestone 4, Checkpoint C: koncentracija i leverage izloženost (D-041)
+
+### Urađeno
+
+- `App\Analytics\Calculators\ConcentrationCalculator` (§13.6): HHI,
+  effective positions, largest, top 3 po instrumentu (sabiranje istog
+  instrumenta), asset class-u i sektoru (sektor `unavailable` dok izvor ne
+  podržava klasifikaciju); eksplicitna „unknown“ grupa, statusi
+  complete/partial/unavailable, metapodaci kompletnosti (invested/cash/
+  unaccounted weight, brojači, upozorenja).
+- `App\Analytics\Calculators\LeverageExposureCalculator` (§13.7):
+  weighted leverage tačno po §13.7 (null čim ponderisana pozicija nema
+  leverage — bez renormalizacije na poznati deo), `knownLeverageContribution`
+  i `knownLeverageWeight` na invested osnovici, leveraged/1x/unknown weight,
+  max leverage, brojači; nikad pretpostavka 1x (ispravka nalaza review-a).
+- Ispravka nalaza review-a (leverage completeness): pozicija bez
+  upotrebljive težine (null/negativna) više ne ostavlja leverage rezultat
+  tiho `Complete` — `LeverageExposureResult` nosi `missingWeightCount` i
+  `negativeWeightCount` (kao `ConcentrationResult`), status je `partial`,
+  a `weightedLeverage` ostaje vrednost nad poznatom invested osnovicom
+  (D-041 t. 5); edge-case test 60%×1x + nepoznata težina×5x.
+- Novi DTO-i/enumi u `App\Analytics\Data` (`PortfolioHolding(s)`,
+  `ConcentrationResult/Dimension/Group/Warning`, `LeverageExposureResult`,
+  `ExposureStatus`, `ExposureUnavailableReason`, `ExposureWeightBasis`) i
+  `App\Analytics\Support\WeightMath` (tačni BCMath odnosi).
+- `App\Application\Traders\BuildPortfolioExposureReport` (+
+  `PortfolioExposureReport`): adapter iz sačuvanog `PortfolioSnapshot`,
+  bez HTTP-a i bez nove tabele.
+- Testovi sa ručno izračunatim fixture-ima (račun u komentarima): prazan
+  portfolio, samo keš, jedna pozicija (HHI = 1), < 3 grupe za top 3,
+  duplikat instrumenta, nepoznat asset class, nedostajuća/negativna
+  težina, nedostajući/nevalidan leverage, sektor; feature test adaptera.
+- Odluke: D-041 (invested-only osnovica, sektor se ne računa, tretman
+  nepoznatog).
+
+### Verifikacija
+
+- `php artisan test --compact`: 1678 total, 1674 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
+
+## 2026-10-06 — Milestone 4, Checkpoint D: copy simulator (D-042)
+
+### Urađeno
+
+- Migracija `copy_simulations` (novac u centima, težine u ppb, bez
+  `analysis_profile_id`, sa `platform_minimum_copy_amount_cents`), model
+  `CopySimulation` + factory, relacije na `Trader` i `PortfolioSnapshot`.
+  `php artisan migrate` izvršen na `trade_ledger`.
+- `App\Application\Traders\StoredPortfolioCoverageAdapter`: sačuvani
+  snapshot → `LivePortfolio` → postojeći `LivePortfolioCoverageAdapter`.
+- `App\Analytics\Calculators\CopySimulationCalculator` (+
+  `CopySimulationResult`, `SimulatedPosition`, `CopySimulationWarning`)
+  nad nepromenjenim `CopyCoverageCalculator`-om.
+- `SimulateCopyAmount` (upis, `recalculate()`, `reproduces()`),
+  `BuildCopySimulationMatrix` (+ `CopySimulationMatrix`),
+  `CopyAmountPreset`, `CoverageTargetPreset`, `CopySimulationSettings`,
+  `UnsupportedCopySimulationMethodology`.
+- `php artisan etoro:simulate-copy` (offline, sačuvani snapshot).
+- Testovi sa ručno izračunatim fixture-om (`CopySimulationFixtures.php`):
+  svi razlozi preskakanja sa objašnjenjem, preseti, targeti 90/95/99/100%
+  (i 1 ppb pozicija, i nedostižan target), keš i neobjašnjena težina
+  (granica tolerancije), nepoznat keš, prazan snapshot, ekvivalencija sa
+  live use case-ovima, bit-identično ponovno računanje, druga verzija
+  metodologije, CLI.
+- Ručna provera na dev MySQL-u (transakcija vraćena, 0 trajnih upisa):
+  JSON kolona preuređuje ključeve; `reproduces()` = true.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1740 total, 1736 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
+
+## 2026-10-06 — Milestone 4, Checkpoint E: Filament portfolio i copy simulator UI (D-043)
+
+### Urađeno
+
+- `BuildTraderPortfolioReport` + `TraderPortfolioReport` (scoped,
+  memoizovan; privatan/nepronađen portfolio skriva snapshot-e),
+  `SimulateCopyAmount::preview()`, `CopySimulationInput` (deljeni
+  parser, CLI refaktorisan na njega).
+- `ViewTrader`: header akcija „Sync portfolio“ (queued, ista poruka/uslovi
+  kao „Sync performance“), infolist „Portfolio sync“, footer widget-i
+  `TraderPortfolio` (snapshot/potvrda, invested/keš/neobjašnjeno, tabela
+  pozicija, koncentracija po instrumentu/asset class-u sa partial
+  oznakom, sektor „unavailable“ uz razlog, leverage sa poznatim
+  doprinosom kad weighted nije utvrdiv) i `CopyAmountSimulator`
+  (preseti $200/$500/$1,000, slobodan unos + validacija, minimum
+  pozicije, opcioni target, preskočene pozicije sa objašnjenjem, matrica
+  preseta i target-a 90/95/99/100% sa nedostižnim slučajem, „Save
+  simulation“, poslednje sačuvane simulacije sa proverom
+  reproducibilnosti).
+- `NumberDisplay` (USD iz centi, decimalni string → prikaz, BCMath).
+- Testovi: `TraderPortfolioViewTest` (25) + nove klase u arhitektonskom
+  testu Trader Filament klasa.
+
+### Vizuelni QA
+
+Headless Chrome (CDP preko ugrađenog Node WebSocket-a, bez paketa) protiv
+izolovane sintetičke SQLite baze `/private/tmp/tl-qa-m4e/qa.sqlite`
+(`ETORO_ENABLED=false`; dev baza nije dirana). Light, dark i dark sa
+nevalidnim unosom — bez nalaza osim preloma `methodology_version` kolone
+(ispravljeno `nowrap`). Artefakti ostaju u `/private/tmp/tl-qa-m4e/`.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1774 total, 1770 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+  Frontend asseti nisu menjani (`npm run build` nije potreban).
+
+### Ispravka iz review-a: prekoračenje opsega (D-043 tačka 6)
+
+- Nalaz (major): minimum pozicije do $9,999,999,999,999 nad težinom 1 ppb
+  davao je breakpoint > `PHP_INT_MAX` → neuhvaćen
+  `CoverageCalculationException` → Livewire 500.
+- `CopySimulationInput::MAXIMUM_AMOUNT_CENTS` ($10,000,000, aritmetički
+  izvedena granica) za iznos i minimum pozicije u UI-ju i CLI-ju.
+- Novi `CopySimulationOutOfRange`; `BuildCopySimulationMatrix` nosi status
+  van opsega po presetu/targetu, `SimulateCopyAmount` baca kontrolisan
+  izuzetak i ništa ne upisuje; widget prikazuje „Out of range —
+  practically unreachable“, CLI vraća grešku. Kalkulator nepromenjen.
+- Testovi: matrica (van opsega / granica 10¹⁸ centi), `SimulateCopyAmount`
+  (bez upisa, granica), Livewire (granica, 1 ppb + ogroman minimum bez
+  500, čuvanje na granici), CLI (granica, kontrolisan van opsega).
+- Posle ispravke: `php artisan test --compact` 1786 total, 1782 passed,
+  4 skipped, 1 poznato upozorenje; `pint --test` passed;
+  `composer types:check` 0 errors.
+
+### Ispravka iz review-a: sačuvana simulacija van opsega
+
+- Nalaz (minor): lista sačuvanih simulacija hvatala je samo
+  `UnsupportedCopySimulationMethodology`; red trenutne metodologije čija
+  reprodukcija ispada van opsega bacao je `CopySimulationOutOfRange` →
+  500. Sada se hvata i prikazuje „Not reproducible — out of range“
+  (D-043 tačka 6). Test: Livewire render takvog reda bez 500.
+
+### Bezbednost
+
+Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
+
+## 2026-10-06 — Milestone 4, Checkpoint F: live `mapping_failed` portfolija (D-044)
+
+- Uzrok: stvarni `openTimestamp` ima razlomak sekunde (1–3 cifre + `Z`);
+  mapper je prihvatao samo cele sekunde → `malformed_timestamp` na
+  `positions[i].openTimestamp`.
+- `LivePortfolioMapper`: podržan `.` + 1–7 cifara razlomka (UTC `Z`),
+  striktna provera ostaje; ostali oblici se i dalje odbijaju.
+- `SyncTraderPortfolio`: `mapping_failed` run čuva sanitizovan
+  `metadata.mapping_error` (mapper, putanja polja, razlog, imena tipova) i
+  razlog u `error_summary`.
+- Fixture `tests/Fixtures/Etoro/live-portfolio-fractional-timestamps.json`
+  (sintetički); unit + feature testovi.
+- Live: 2 read-only GET poziva (#3 dijagnoza šeme, #4 provera popravke bez
+  upisa u bazu), upisani u privatni ledger; ništa od payload-a nije
+  sačuvano. Live sync posle popravke nije ponovo pokrenut.
+- Verifikacija: `php artisan test --compact` 1803 total, 1799 passed,
+  4 skipped, 1 poznato upozorenje; `pint --test` passed;
+  `composer types:check` 0 errors.
+
+### Bezbednost
+
+Bez `.env`; bez novih paketa; bez brisanja podataka iz dev baze; bez
+commit-a.
+
+## 2026-10-06 — Milestone 4, Checkpoint F: zatvaranje (D-045, D-046)
+
+### Urađeno
+
+- **Zastareli snapshot (D-045, odluka vlasnika; zamenjuje D-043 tačku 1):**
+  `BuildTraderPortfolioReport` uvek vraća poslednji sačuvani snapshot;
+  `TraderPortfolioReport::isStale()`. Portfolio sekcija i simulator za
+  private/not found portfolio prikazuju poslednji poznati snapshot uz
+  Filament `callout` (warning) sa vremenom `last_confirmed_at` u
+  Europe/Malta; rezultat simulatora nosi badge „Stale snapshot“, a
+  obaveštenje o čuvanju to navodi. Bez snapshot-a — prazno stanje.
+- **Vreme (D-046):** `config('app.display_timezone')` = `Europe/Malta`,
+  `App\Filament\Support\DateTimeDisplay` (format `Y-m-d H:i T`) i
+  `configureFilament()` iz `AppServiceProvider` (FilamentTimezone +
+  podrazumevani date-time format za `Table`/`Schema`) — svi `dateTime()`
+  unosi/kolone u TraderResource i ImportRunResource bez izmena po polju;
+  widget-i koriste helper. `app.timezone` ostaje `UTC`.
+- Testovi: `TraderPortfolioViewTest` (private/not found + snapshot →
+  prikaz i upozorenje; bez snapshot-a → prazno stanje; javan → bez
+  upozorenja; simulacija i čuvanje nad zastarelim snapshot-om) i novi
+  `DisplayTimezoneTest` (leto/zima, oba DST prelaza, tabele i infolist-i).
+- Dokumentacija: README (status M3/M4, nove komande, portfolio/simulator
+  UI, rate limiting i timeout), `docs/REVIEW_STATUS.md` (M4 zapis),
+  `docs/DECISIONS.md` (D-043 tačka 1 superseded, D-045, D-046).
+
+### Vizuelni QA
+
+Headless Chrome (CDP, isti skript kao E, bez paketa) nad izolovanom
+sintetičkom SQLite bazom `/private/tmp/tl-qa-m4f/qa.sqlite` (env
+varijable procesa, `.env` nije čitan ni menjan; dev baza nije dirana).
+Light i dark, privatan portfolio: upozorenje vidljivo u oba moda, sve
+sekcije renderovane, vremena u CEST. Artefakti u `/private/tmp/tl-qa-m4f/`.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1820 total, 1816 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+  Frontend asseti nisu menjani.
+
+### Bezbednost
+
+Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno;
+bez commit-a.

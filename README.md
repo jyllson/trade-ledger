@@ -5,23 +5,23 @@ monitoring copy traders, starting with eToro. See `PROJECT.md` for the full
 product specification and milestone plan.
 
 **Status:** Milestone 1 (API spike) complete. Product Milestone 2
-(discovery and trader storage — see `PROJECT.md` §20) is **COMPLETE**:
-implementation (live multi-page ranking discovery, row-level failure
-persistence, trader profile lookup, candidate/watched/ignored triage,
-discovery retry, and a read-only Filament UI), all three §20 acceptance
-criteria, and integration have all landed in `main` via
-[PR #6](https://github.com/jyllson/trade-ledger/pull/6) (squash merge
-`d107f6e21a2c5c9e122b783d782fee377bd59d69`, CI green). Two of the three
-acceptance criteria are confirmed directly by a live discovery run, owner-
-approved and run twice against a temporary, isolated acceptance database
-(never the development `trade_ledger` database): "at least 20 real
-candidates imported" (40 distinct candidates imported) and "repeated
-import creates no duplicates" (an identical second run left the trader
-count and distinct-identity counts unchanged). "Failed rows are visible"
-remains proven deterministically OFFLINE by dedicated Pest coverage — see
-`docs/REVIEW_STATUS.md`. The next product milestone per `PROJECT.md` §20
-is Milestone 3 (performance analytics), which has not been started. The
-application contains no trading/write capability at any point.
+(discovery and trader storage) is **COMPLETE** — merged via
+[PR #6](https://github.com/jyllson/trade-ledger/pull/6). Product
+Milestone 3 (performance analytics: monthly/daily gain series, returns,
+drawdown, consistency, charts) is **COMPLETE** — merged via
+[PR #8](https://github.com/jyllson/trade-ledger/pull/8). Product
+Milestone 4 (live portfolio importer, instruments, portfolio snapshots,
+concentration/leverage exposure and the copy amount simulator) is
+**COMPLETE** on branch `codex/milestone-4-portfolio-simulator` (checkpoints
+A–F, pending its PR/merge into `main`). Per-milestone evidence and the
+`PROJECT.md` §20 acceptance criteria are in `docs/REVIEW_STATUS.md`. The
+next product milestone per `PROJECT.md` §20 is Milestone 5 (trader
+comparison). The application contains no trading/write capability at any
+point.
+
+All timestamps are stored in UTC and shown in the UI in `Europe/Malta`
+with the zone abbreviation (e.g. `2026-10-06 10:30 CEST`;
+`config('app.display_timezone')`, `docs/DECISIONS.md` D-046).
 
 ## Security warning
 
@@ -75,6 +75,16 @@ Visit `/admin` and sign in with the Filament user you just created.
   (only shown/allowed when the underlying run is actually eligible).
 - `/admin/discover-traders` — "Run discovery" and "Lookup profile" action
   forms for live, read-only eToro requests.
+- `/admin/traders/{id}` — trader page: profile, performance (Milestone 3),
+  the latest STORED portfolio snapshot (positions, concentration by
+  instrument/asset class, leverage exposure) and the Livewire Copy Amount
+  Simulator ($200/$500/$1,000 presets or a free amount, minimum position
+  amount, optional target; per-position skip reasons; 90/95/99/100% target
+  matrix; saved, reproducible simulations). Rendering never calls eToro;
+  "Sync performance" and "Sync portfolio" only queue jobs. When the last
+  sync found the portfolio private / not found, the last known snapshot is
+  still shown — with a prominent "may be outdated" warning on the
+  portfolio section and the simulator (D-045).
 
 Several distinct surfaces can trigger a real eToro HTTP request — none of
 them by rendering a page, only by an explicit user action, and only when
@@ -126,6 +136,35 @@ daily 03:00 UTC `--watched` sync is scheduled; it only runs if
 `php artisan schedule:run` is triggered every minute (cron) and a queue
 worker is running. See `docs/DECISIONS.md` D-032–D-035.
 
+### Portfolio sync and copy simulator
+
+```bash
+php artisan etoro:sync-portfolio <username>        # queue one stored trader
+php artisan etoro:sync-portfolio --watched         # queue every watched trader
+php artisan etoro:sync-portfolio <username> --now  # run in this process
+php artisan etoro:simulate-copy <username> 500 --target=95 --minimum-position=1
+php artisan etoro:simulate-copy <username> 1000 --snapshot=<id>
+```
+
+`etoro:sync-portfolio` makes one read-only GET for the live portfolio and
+stores it as a `portfolio_snapshots` row with its positions (an unchanged
+portfolio only confirms the existing snapshot), plus best-effort
+market-data GETs for missing instrument metadata. `etoro:simulate-copy` is
+fully offline: it simulates a copy amount over a stored snapshot and saves
+a reproducible `copy_simulations` row (`--target` is in percentage points).
+See `docs/DECISIONS.md` D-037–D-045.
+
+Rate limiting and timeouts: every HTTP attempt (including retries)
+consumes one permit from a local limiter — `etoro-api`
+(`ETORO_REQUESTS_PER_MINUTE`, default 45 of eToro's 60/min) and a separate
+`etoro-market-data` budget (90/min). Without a permit the request is not
+sent and nothing waits: the run fails as temporarily unavailable, a queued
+job is released for a later retry and `--now` prints a warning (D-039).
+Each HTTP attempt is bounded by `ETORO_TIMEOUT_SECONDS` /
+`ETORO_CONNECT_TIMEOUT_SECONDS`; sync jobs have an 80 s timeout (below the
+90 s queue `retry_after`), and an interrupted job's `ImportRun` is closed
+as `failed` instead of staying `running` (D-040).
+
 ### Background services on macOS (launchd)
 
 Two user LaunchAgents keep the queue worker and the scheduler running
@@ -150,7 +189,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tradeledger.schedule
 ```bash
 php artisan test
 vendor/bin/pint
-vendor/bin/phpstan analyse
+composer types:check
 ```
 
 The default/local/CI suite runs against an isolated SQLite `:memory:`

@@ -1,0 +1,67 @@
+{
+    "realizedCreditPct": 4.5,
+    "unrealizedCreditPct": 4.6,
+    "positions": [
+        {
+            "positionId": 710001,
+            "openTimestamp": "2021-03-04T14:22:31.457Z",
+            "openRate": 152.3,
+            "instrumentId": 500001,
+            "isBuy": true,
+            "leverage": 1,
+            "takeProfitRate": 0,
+            "stopLossRate": 0.0001,
+            "socialTradeId": 0,
+            "parentPositionId": 0,
+            "investmentPct": 30,
+            "netProfit": 140.25,
+            "trailingStopLoss": false
+        },
+        {
+            "positionId": 710002,
+            "openTimestamp": "2022-11-17T09:05:12.38Z",
+            "openRate": 41.07,
+            "instrumentId": 500002,
+            "isBuy": true,
+            "leverage": 1,
+            "takeProfitRate": 0,
+            "stopLossRate": 0.0001,
+            "socialTradeId": 0,
+            "parentPositionId": 0,
+            "investmentPct": 25,
+            "netProfit": -12.4,
+            "trailingStopLoss": false
+        },
+        {
+            "positionId": 710003,
+            "openTimestamp": "2023-06-30T20:59:59.9Z",
+            "openRate": 310.5,
+            "instrumentId": 500003,
+            "isBuy": true,
+            "leverage": 1,
+            "takeProfitRate": 455.0,
+            "stopLossRate": 0.0001,
+            "socialTradeId": 0,
+            "parentPositionId": 0,
+            "investmentPct": 20,
+            "netProfit": 63.8,
+            "trailingStopLoss": false
+        },
+        {
+            "positionId": 710004,
+            "openTimestamp": "2024-01-02T08:00:00Z",
+            "openRate": 18.62,
+            "instrumentId": 500004,
+            "isBuy": true,
+            "leverage": 1,
+            "takeProfitRate": 0,
+            "stopLossRate": 0,
+            "socialTradeId": 0,
+            "parentPositionId": 0,
+            "investmentPct": 20.5,
+            "netProfit": 2.15,
+            "trailingStopLoss": false
+        }
+    ],
+    "socialTrades": []
+}
