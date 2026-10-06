@@ -1885,3 +1885,73 @@ D-023); snapshot-i se čuvaju od D-038.
    snapshot-om tog tradera, bez HTTP-a (radi i sa `ETORO_ENABLED=false`),
    upisuje simulaciju i ispisuje preskočene pozicije sa objašnjenjem.
    `etoro:copy-target` / `etoro:copy-coverage` nepromenjeni.
+
+## D-043: Portfolio i copy simulator UI na stranici tradera
+
+**Datum:** 2026-10-06
+**Status:** usvojeno (Milestone 4, Checkpoint E; bez live poziva)
+
+**Odluka:**
+
+1. **Privatan / nepronađen portfolio skriva sačuvane snapshot-e u UI-ju.**
+   Kad je `traders.portfolio_visibility` `private` ili `not_found`, sekcija
+   „Portfolio“ i simulator prikazuju prazno stanje sa razlogom i brojem
+   sačuvanih snapshot-a (ostaju u bazi, D-038), umesto da stari snapshot
+   predstave kao trenutni portfolio. Sačuvane simulacije ostaju vidljive
+   (istorija, reproducibilne). CLI `etoro:simulate-copy --snapshot=` i
+   dalje radi nad bilo kojim sačuvanim snapshot-om.
+2. **Read model:** `App\Application\Traders\BuildTraderPortfolioReport`
+   (scoped singleton, memoizovan po trader-u, kao D-036) vraća
+   `TraderPortfolioReport` (poslednji vidljiv snapshot, pozicije sa
+   instrumentima, `PortfolioExposureReport`); čita samo bazu.
+3. **Simulator = `SimulateCopyAmount::preview()` + `BuildCopySimulationMatrix`.**
+   `preview()` vraća isti `result` dokument koji `handle()` upisuje (bez
+   upisa), pa „Save simulation“ čuva tačno ono što je prikazano;
+   metodologija (`copy-simulation-v1`) se ne menja. Lista poslednjih 10
+   sačuvanih simulacija pri renderovanju poziva `reproduces()` i prikazuje
+   ishod („Yes“ / „NO — differs“ / „Not checked (other methodology)“).
+4. **Parsiranje ulaza** (USD sa ≤ 2 decimale, target u procentnim
+   poenima — D-023) je izdvojeno u `CopySimulationInput` i deli ga CLI;
+   UI i CLI odbijaju minimum pozicije od $0, a UI i iznos od $0.
+5. **Prikaz:** Filament komponente su `TraderPortfolioSection` (infolist
+   „Portfolio sync“), footer widget-i `TraderPortfolio` i
+   `CopyAmountSimulator` (Livewire + Filament akcija `saveSimulation`) i
+   header akcija „Sync portfolio“ kroz `QueueTraderPortfolioSync` (isti
+   obrazac i uslovi kao „Sync performance“). Osnovica je uvek imenovana:
+   težine pozicija = udeo celog portfolija; koncentracija/leverage =
+   invested-only (D-041); coverage = udeo pozitivne težine pozicija
+   (D-022). Vremena u Blade prikazu su `Europe/Malta` sa oznakom zone
+   (§9); postojeći infolist `dateTime()` unosi su ostali nepromenjeni.
+   Opcija „use visible cash allocation“ iz §15 nije dodata — keš se uvek
+   prikazuje odvojeno, a kalkulator nema taj ulaz.
+6. **Gornja granica unosa i rezultat van opsega.** Iznos kopiranja i
+   minimum pozicije su u UI-ju i CLI-ju ograničeni na
+   `CopySimulationInput::MAXIMUM_AMOUNT_CENTS` = **$10,000,000** (10⁹
+   centi; granica uključena). Izbor nije ekonomski nego aritmetički: za
+   bilo koju pozitivnu težinu w ≥ 1 ppb breakpoint ceil(M × 10⁹ / w) ≤ 10¹⁸
+   centi i procenjeni iznos floor(A × w / 10⁹) ≤ w — oba ispod
+   `PHP_INT_MAX` — pa u granicama nijedna cifra simulatora ne može da
+   izađe iz opsega `Money`. Odluka D-042 tačka 6 (target 100% bez gornje
+   granice) ostaje: na granici, težina 1 ppb daje $10 kvadriliona.
+   Bez obzira na granice (direktan poziv, oštećene težine čiji zbir
+   prelazi `PHP_INT_MAX`), `CoverageCalculationException` se hvata u
+   application sloju; `CopyCoverageCalculator` i rezultati za normalne
+   vrednosti su nepromenjeni:
+   - `BuildCopySimulationMatrix` za takav preset/target vraća eksplicitan
+     status van opsega (`presetIsOutOfRange()`, `targetIsOutOfRange()`,
+     `isOutOfRange()`); pristup takvoj stavci baca
+     `CopySimulationOutOfRange`. Svi preseti računaju breakpoint svake
+     pozicije, pa su van opsega zajedno; target-i pojedinačno.
+   - `SimulateCopyAmount::preview()`/`handle()` bacaju
+     `CopySimulationOutOfRange`; `handle()` tada ništa ne upisuje — u bazi
+     nikad nema reda koji `recalculate()` ne bi mogao da ponovi.
+   - UI i dalje renderuje unos iznad granice (uz grešku validacije) i
+     takve ćelije prikazuje kao „Out of range — practically unreachable“,
+     nikad 500. „Save simulation“ takav ulaz odbija validacijom (a
+     preostali slučaj van opsega obaveštenjem „Nothing was saved“). CLI
+     odbija ulaz iznad granice (`INVALID`), a rezultat van opsega
+     prijavljuje greškom i `FAILURE`, bez upisa.
+   - Lista sačuvanih simulacija hvata i `CopySimulationOutOfRange` iz
+     `reproduces()` (red trenutne metodologije upisan mimo granica, npr.
+     direktno u bazu) i prikazuje „Not reproducible — out of range“, nikad
+     500.

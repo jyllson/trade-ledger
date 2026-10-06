@@ -2,6 +2,8 @@
 
 use App\Analytics\ValueObjects\Money;
 use App\Analytics\ValueObjects\Percentage;
+use App\Application\Traders\CopySimulationInput;
+use App\Application\Traders\CopySimulationOutOfRange;
 use App\Application\Traders\CopySimulationSettings;
 use App\Application\Traders\CoverageTargetPreset;
 use App\Application\Traders\SimulateCopyAmount;
@@ -338,3 +340,20 @@ it('never reaches the eToro transport from the simulator path', function (string
     'Application/Traders/StoredPortfolioCoverageAdapter.php',
     'Analytics/Calculators/CopySimulationCalculator.php',
 ]);
+
+it('throws a controlled out-of-range error and stores nothing when a figure is not representable', function () {
+    $snapshot = copySimulationStoredSnapshot([['big', '1', 999_999_999], ['tiny', '2', 1]], ['cash_weight_ppb' => 0]);
+    $simulateCopyAmount = app(SimulateCopyAmount::class);
+    $hugeMinimum = Money::fromCents(999_999_999_999_900);
+
+    expect(fn () => $simulateCopyAmount->preview($snapshot, Money::fromCents(20_000), $hugeMinimum))->toThrow(CopySimulationOutOfRange::class)
+        ->and(fn () => $simulateCopyAmount->handle($snapshot, Money::fromCents(20_000), $hugeMinimum))->toThrow(CopySimulationOutOfRange::class)
+        ->and(CopySimulation::count())->toBe(0);
+});
+
+it('bounds the copy and minimum position amounts at $10,000,000', function () {
+    expect(CopySimulationInput::MAXIMUM_AMOUNT_CENTS)->toBe(1_000_000_000)
+        ->and(CopySimulationInput::maximumAmountLabel())->toBe('$10,000,000')
+        ->and(CopySimulationInput::exceedsMaximum(CopySimulationInput::parseUsd('10000000') ?? Money::zero()))->toBeFalse()
+        ->and(CopySimulationInput::exceedsMaximum(CopySimulationInput::parseUsd('10000000.01') ?? Money::zero()))->toBeTrue();
+});

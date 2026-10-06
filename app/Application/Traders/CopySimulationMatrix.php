@@ -17,8 +17,8 @@ use App\Analytics\ValueObjects\Money;
 final readonly class CopySimulationMatrix
 {
     /**
-     * @param  array<int, CopySimulationResult>  $presets  keyed by CopyAmountPreset value, in enum order
-     * @param  array<int, CoverageTargetResult>  $targets  keyed by CoverageTargetPreset value, in enum order
+     * @param  array<int, CopySimulationResult|null>  $presets  keyed by CopyAmountPreset value, in enum order; null = out of range
+     * @param  array<int, CoverageTargetResult|null>  $targets  keyed by CoverageTargetPreset value, in enum order; null = out of range
      * @param  list<CopySimulationWarning>  $warnings  data-quality warnings of the snapshot
      */
     public function __construct(
@@ -31,13 +31,38 @@ final readonly class CopySimulationMatrix
         public bool $isEstimate,
     ) {}
 
-    public function preset(CopyAmountPreset $preset): CopySimulationResult
+    /**
+     * Whether a figure of this preset does not fit the representable money
+     * range (practically unreachable; D-043).
+     */
+    public function presetIsOutOfRange(CopyAmountPreset $preset): bool
     {
-        return $this->presets[$preset->value];
+        return $this->presets[$preset->value] === null;
     }
 
+    public function targetIsOutOfRange(CoverageTargetPreset $target): bool
+    {
+        return $this->targets[$target->value] === null;
+    }
+
+    public function isOutOfRange(): bool
+    {
+        return in_array(null, $this->presets, true) || in_array(null, $this->targets, true);
+    }
+
+    /**
+     * @throws CopySimulationOutOfRange when presetIsOutOfRange()
+     */
+    public function preset(CopyAmountPreset $preset): CopySimulationResult
+    {
+        return $this->presets[$preset->value] ?? throw new CopySimulationOutOfRange('Preset '.$preset->label().' is outside the representable range.');
+    }
+
+    /**
+     * @throws CopySimulationOutOfRange when targetIsOutOfRange()
+     */
     public function target(CoverageTargetPreset $target): CoverageTargetResult
     {
-        return $this->targets[$target->value];
+        return $this->targets[$target->value] ?? throw new CopySimulationOutOfRange('Target '.$target->label().' is outside the representable range.');
     }
 }

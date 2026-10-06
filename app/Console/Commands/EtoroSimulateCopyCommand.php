@@ -6,6 +6,8 @@ namespace App\Console\Commands;
 
 use App\Analytics\ValueObjects\Money;
 use App\Analytics\ValueObjects\Percentage;
+use App\Application\Traders\CopySimulationInput;
+use App\Application\Traders\CopySimulationOutOfRange;
 use App\Application\Traders\FindStoredTraderByUsername;
 use App\Application\Traders\SimulateCopyAmount;
 use App\Application\Traders\TraderUsername;
@@ -69,7 +71,13 @@ final class EtoroSimulateCopyCommand extends Command
             return self::FAILURE;
         }
 
-        $simulation = $this->simulateCopyAmount->handle($snapshot, $copyAmount, $minimumPositionAmount, $targetCoverage);
+        try {
+            $simulation = $this->simulateCopyAmount->handle($snapshot, $copyAmount, $minimumPositionAmount, $targetCoverage);
+        } catch (CopySimulationOutOfRange) {
+            $this->components->error('A result is out of range (practically unreachable) for this snapshot and these inputs; nothing was saved.');
+
+            return self::FAILURE;
+        }
 
         $this->render($simulation);
 
@@ -120,13 +128,21 @@ final class EtoroSimulateCopyCommand extends Command
      */
     private function parseUsd(string $raw, string $label): ?Money
     {
-        if (preg_match('/^(\d{1,13})(?:\.(\d{1,2}))?$/', $raw, $matches) !== 1) {
+        $money = CopySimulationInput::parseUsd($raw);
+
+        if ($money === null) {
             $this->components->error("{$label} must be a USD amount with at most 2 decimals, e.g. 500 or 500.25.");
 
             return null;
         }
 
-        return Money::fromCents((int) $matches[1] * 100 + (int) str_pad($matches[2] ?? '', 2, '0'));
+        if (CopySimulationInput::exceedsMaximum($money)) {
+            $this->components->error("{$label} must be at most ".CopySimulationInput::maximumAmountLabel().'.');
+
+            return null;
+        }
+
+        return $money;
     }
 
     /**
@@ -135,17 +151,13 @@ final class EtoroSimulateCopyCommand extends Command
      */
     private function parseTargetPercent(string $raw): ?Percentage
     {
-        if (preg_match('/^(\d{1,3})(?:\.(\d{1,7}))?$/', $raw, $matches) === 1) {
-            $ppb = (int) $matches[1] * 10_000_000 + (int) str_pad($matches[2] ?? '', 7, '0');
+        $target = CopySimulationInput::parseTargetPercent($raw);
 
-            if ($ppb > 0 && $ppb <= 1_000_000_000) {
-                return Percentage::fromPartsPerBillion($ppb);
-            }
+        if ($target === null) {
+            $this->components->error('--target must be percentage points greater than 0 and at most 100, e.g. 95 or 99.5.');
         }
 
-        $this->components->error('--target must be percentage points greater than 0 and at most 100, e.g. 95 or 99.5.');
-
-        return null;
+        return $target;
     }
 
     private function render(CopySimulation $simulation): void

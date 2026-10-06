@@ -3,8 +3,11 @@
 use App\Analytics\Data\CopySimulationResult;
 use App\Analytics\Data\CopySimulationWarning;
 use App\Analytics\Data\CoverageTargetResult;
+use App\Analytics\ValueObjects\Money;
 use App\Application\Traders\BuildCopySimulationMatrix;
 use App\Application\Traders\CopyAmountPreset;
+use App\Application\Traders\CopySimulationInput;
+use App\Application\Traders\CopySimulationOutOfRange;
 use App\Application\Traders\CoverageTargetPreset;
 use App\Models\CopySimulation;
 use Illuminate\Support\Facades\Http;
@@ -121,4 +124,31 @@ it('carries the snapshot data-quality warnings and estimate flag', function () {
     expect($matrix->warnings)->toBe([CopySimulationWarning::CashWeightUnknown])
         ->and($matrix->isEstimate)->toBeTrue()
         ->and($matrix->portfolioSnapshotId)->toBe($snapshot->id);
+});
+
+it('marks figures outside the representable range as out of range instead of throwing', function () {
+    // M = $9,999,999,999,999 over a 1 ppb weight: ceil(M × 10⁹ / 1) cents ≈
+    // 10²⁴ > PHP_INT_MAX. Every preset computes that breakpoint, the 100%
+    // target needs it; 90/95/99% only need the 999_999_999 ppb position.
+    $snapshot = copySimulationStoredSnapshot([['big', '1', 999_999_999], ['tiny', '2', 1]], ['cash_weight_ppb' => 0]);
+
+    $matrix = app(BuildCopySimulationMatrix::class)->handle($snapshot, Money::fromCents(999_999_999_999_900));
+
+    expect($matrix->isOutOfRange())->toBeTrue()
+        ->and(array_map(fn (CopyAmountPreset $preset): bool => $matrix->presetIsOutOfRange($preset), CopyAmountPreset::cases()))->toBe([true, true, true])
+        ->and(array_map(fn (CoverageTargetPreset $target): bool => $matrix->targetIsOutOfRange($target), CoverageTargetPreset::cases()))->toBe([false, false, false, true])
+        ->and($matrix->target(CoverageTargetPreset::Percent99)->effectiveMinimumCopyAmount?->cents())->toBe(1_000_000_000_999_901)
+        ->and($matrix->warnings)->toBe([])
+        ->and(fn () => $matrix->target(CoverageTargetPreset::Percent100))->toThrow(CopySimulationOutOfRange::class);
+});
+
+it('keeps every figure representable at the maximum input amount, even for a 1 ppb weight', function () {
+    // D-043: M = $10,000,000 = 10⁹ cents ⇒ ceil(10⁹ × 10⁹ / 1) = 10¹⁸ cents.
+    $snapshot = copySimulationStoredSnapshot([['big', '1', 999_999_999], ['tiny', '2', 1]], ['cash_weight_ppb' => 0]);
+
+    $matrix = app(BuildCopySimulationMatrix::class)->handle($snapshot, CopySimulationInput::maximumAmount());
+
+    expect($matrix->isOutOfRange())->toBeFalse()
+        ->and($matrix->target(CoverageTargetPreset::Percent100)->effectiveMinimumCopyAmount?->cents())->toBe(1_000_000_000_000_000_000)
+        ->and($matrix->preset(CopyAmountPreset::Usd200)->coverage->eligibleCount)->toBe(0);
 });

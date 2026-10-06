@@ -71,12 +71,38 @@ it('rejects invalid input without storing anything', function (array $arguments,
     'three decimals' => [['amount' => '200.123'], 'amount must be a USD amount'],
     'negative amount' => [['amount' => '-200'], 'amount must be a USD amount'],
     'zero minimum position' => [['--minimum-position' => '0'], '--minimum-position must be greater than 0'],
+    'amount above maximum' => [['amount' => '10000000.01'], 'amount must be at most $10,000,000.'],
+    'minimum position above maximum' => [['--minimum-position' => '9999999999999'], '--minimum-position must be at most $10,000,000.'],
     'target zero' => [['--target' => '0'], '--target must be percentage points'],
     'target above 100' => [['--target' => '100.5'], '--target must be percentage points'],
     'target as fraction syntax' => [['--target' => '.95'], '--target must be percentage points'],
     'no snapshot' => [[], 'has no stored portfolio snapshot'],
     'foreign snapshot' => [['--snapshot' => '999'], 'No stored snapshot with that id'],
 ]);
+
+it('accepts the maximum amounts over a 1 ppb weight without an out-of-range failure', function () {
+    $trader = Trader::factory()->create(['username' => 'sim_trader']);
+    copySimulationStoredSnapshot([['big', '1', 999_999_999], ['tiny', '2', 1]], ['cash_weight_ppb' => 0], $trader);
+
+    $this->artisan('etoro:simulate-copy', ['username' => 'sim_trader', 'amount' => '10000000', '--minimum-position' => '10000000', '--target' => '100'])
+        ->expectsOutputToContain('$10,000,000,000,000,000.00')
+        ->assertSuccessful();
+
+    expect(CopySimulation::query()->sole()->minimum_target_amount_cents)->toBe(1_000_000_000_000_000_000);
+});
+
+it('reports an out-of-range result without an exception and stores nothing', function () {
+    // Corrupt stored weights whose sum exceeds PHP_INT_MAX ppb: not
+    // representable whatever the (bounded) inputs are.
+    $trader = Trader::factory()->create(['username' => 'sim_trader']);
+    copySimulationStoredSnapshot([['a', '1', 5_000_000_000_000_000_000], ['b', '2', 5_000_000_000_000_000_000]], ['cash_weight_ppb' => 0], $trader);
+
+    $this->artisan('etoro:simulate-copy', ['username' => 'sim_trader', 'amount' => '200'])
+        ->expectsOutputToContain('A result is out of range (practically unreachable) for this snapshot and these inputs; nothing was saved.')
+        ->assertFailed();
+
+    expect(CopySimulation::count())->toBe(0);
+});
 
 it('rejects an unknown trader', function () {
     $this->artisan('etoro:simulate-copy', ['username' => 'nobody', 'amount' => '200'])

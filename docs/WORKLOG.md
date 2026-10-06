@@ -1875,3 +1875,71 @@ Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
 ### Bezbednost
 
 Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
+
+## 2026-10-06 — Milestone 4, Checkpoint E: Filament portfolio i copy simulator UI (D-043)
+
+### Urađeno
+
+- `BuildTraderPortfolioReport` + `TraderPortfolioReport` (scoped,
+  memoizovan; privatan/nepronađen portfolio skriva snapshot-e),
+  `SimulateCopyAmount::preview()`, `CopySimulationInput` (deljeni
+  parser, CLI refaktorisan na njega).
+- `ViewTrader`: header akcija „Sync portfolio“ (queued, ista poruka/uslovi
+  kao „Sync performance“), infolist „Portfolio sync“, footer widget-i
+  `TraderPortfolio` (snapshot/potvrda, invested/keš/neobjašnjeno, tabela
+  pozicija, koncentracija po instrumentu/asset class-u sa partial
+  oznakom, sektor „unavailable“ uz razlog, leverage sa poznatim
+  doprinosom kad weighted nije utvrdiv) i `CopyAmountSimulator`
+  (preseti $200/$500/$1,000, slobodan unos + validacija, minimum
+  pozicije, opcioni target, preskočene pozicije sa objašnjenjem, matrica
+  preseta i target-a 90/95/99/100% sa nedostižnim slučajem, „Save
+  simulation“, poslednje sačuvane simulacije sa proverom
+  reproducibilnosti).
+- `NumberDisplay` (USD iz centi, decimalni string → prikaz, BCMath).
+- Testovi: `TraderPortfolioViewTest` (25) + nove klase u arhitektonskom
+  testu Trader Filament klasa.
+
+### Vizuelni QA
+
+Headless Chrome (CDP preko ugrađenog Node WebSocket-a, bez paketa) protiv
+izolovane sintetičke SQLite baze `/private/tmp/tl-qa-m4e/qa.sqlite`
+(`ETORO_ENABLED=false`; dev baza nije dirana). Light, dark i dark sa
+nevalidnim unosom — bez nalaza osim preloma `methodology_version` kolone
+(ispravljeno `nowrap`). Artefakti ostaju u `/private/tmp/tl-qa-m4e/`.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1774 total, 1770 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+  Frontend asseti nisu menjani (`npm run build` nije potreban).
+
+### Ispravka iz review-a: prekoračenje opsega (D-043 tačka 6)
+
+- Nalaz (major): minimum pozicije do $9,999,999,999,999 nad težinom 1 ppb
+  davao je breakpoint > `PHP_INT_MAX` → neuhvaćen
+  `CoverageCalculationException` → Livewire 500.
+- `CopySimulationInput::MAXIMUM_AMOUNT_CENTS` ($10,000,000, aritmetički
+  izvedena granica) za iznos i minimum pozicije u UI-ju i CLI-ju.
+- Novi `CopySimulationOutOfRange`; `BuildCopySimulationMatrix` nosi status
+  van opsega po presetu/targetu, `SimulateCopyAmount` baca kontrolisan
+  izuzetak i ništa ne upisuje; widget prikazuje „Out of range —
+  practically unreachable“, CLI vraća grešku. Kalkulator nepromenjen.
+- Testovi: matrica (van opsega / granica 10¹⁸ centi), `SimulateCopyAmount`
+  (bez upisa, granica), Livewire (granica, 1 ppb + ogroman minimum bez
+  500, čuvanje na granici), CLI (granica, kontrolisan van opsega).
+- Posle ispravke: `php artisan test --compact` 1786 total, 1782 passed,
+  4 skipped, 1 poznato upozorenje; `pint --test` passed;
+  `composer types:check` 0 errors.
+
+### Ispravka iz review-a: sačuvana simulacija van opsega
+
+- Nalaz (minor): lista sačuvanih simulacija hvatala je samo
+  `UnsupportedCopySimulationMethodology`; red trenutne metodologije čija
+  reprodukcija ispada van opsega bacao je `CopySimulationOutOfRange` →
+  500. Sada se hvata i prikazuje „Not reproducible — out of range“
+  (D-043 tačka 6). Test: Livewire render takvog reda bez 500.
+
+### Bezbednost
+
+Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.

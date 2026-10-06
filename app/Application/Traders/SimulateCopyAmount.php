@@ -11,6 +11,7 @@ use App\Analytics\Data\CoverageTargetResult;
 use App\Analytics\Data\CoverageWarning;
 use App\Analytics\Data\PositionSkipReason;
 use App\Analytics\Data\SimulatedPosition;
+use App\Analytics\Exceptions\CoverageCalculationException;
 use App\Analytics\ValueObjects\Money;
 use App\Analytics\ValueObjects\Percentage;
 use App\Etoro\Data\LivePortfolio;
@@ -38,6 +39,8 @@ final class SimulateCopyAmount
     /**
      * @param  Money|null  $minimumPositionAmount  default $1 (§11)
      * @param  Percentage|null  $targetCoverage  optional, relative to the visible positive weight (D-022)
+     *
+     * @throws CopySimulationOutOfRange nothing is stored for an out-of-range result (D-043)
      */
     public function handle(
         PortfolioSnapshot $snapshot,
@@ -70,6 +73,30 @@ final class SimulateCopyAmount
     }
 
     /**
+     * The result document handle() would store for these inputs, without
+     * storing anything — the simulator UI shows it while inputs change and
+     * "Save simulation" then persists the same document.
+     *
+     * @return array<string, mixed>
+     *
+     * @throws CopySimulationOutOfRange when a figure does not fit the representable range (D-043)
+     */
+    public function preview(
+        PortfolioSnapshot $snapshot,
+        Money $copyAmount,
+        ?Money $minimumPositionAmount = null,
+        ?Percentage $targetCoverage = null,
+    ): array {
+        return $this->simulate(
+            $snapshot,
+            $copyAmount,
+            $minimumPositionAmount ?? CopySimulationSettings::defaultMinimumPositionAmount(),
+            CopySimulationSettings::platformMinimumCopyAmount(),
+            $targetCoverage,
+        )['document'];
+    }
+
+    /**
      * The result document recomputed from the stored snapshot and the
      * row's own inputs; equal to the stored `result` for a row of the
      * current methodology.
@@ -77,6 +104,7 @@ final class SimulateCopyAmount
      * @return array<string, mixed>
      *
      * @throws UnsupportedCopySimulationMethodology for a row of another version
+     * @throws CopySimulationOutOfRange when a figure does not fit the representable range (D-043)
      */
     public function recalculate(CopySimulation $simulation): array
     {
@@ -102,6 +130,7 @@ final class SimulateCopyAmount
      * kept and compared).
      *
      * @throws UnsupportedCopySimulationMethodology for a row of another version
+     * @throws CopySimulationOutOfRange when a figure does not fit the representable range (D-043)
      */
     public function reproduces(CopySimulation $simulation): bool
     {
@@ -125,6 +154,8 @@ final class SimulateCopyAmount
 
     /**
      * @return array{result: CopySimulationResult, document: array<string, mixed>}
+     *
+     * @throws CopySimulationOutOfRange when a figure does not fit the representable range (D-043)
      */
     private function simulate(
         PortfolioSnapshot $snapshot,
@@ -135,12 +166,16 @@ final class SimulateCopyAmount
     ): array {
         $portfolio = $this->adapter->toLivePortfolio($snapshot);
 
-        $result = $this->calculator->simulate(
-            $this->adapter->toCopyCoverageRequest($portfolio, $copyAmount, $minimumPositionAmount),
-            $portfolio->cashWeight,
-            $platformMinimumCopyAmount,
-            $targetCoverage,
-        );
+        try {
+            $result = $this->calculator->simulate(
+                $this->adapter->toCopyCoverageRequest($portfolio, $copyAmount, $minimumPositionAmount),
+                $portfolio->cashWeight,
+                $platformMinimumCopyAmount,
+                $targetCoverage,
+            );
+        } catch (CoverageCalculationException $exception) {
+            throw CopySimulationOutOfRange::from($exception);
+        }
 
         return ['result' => $result, 'document' => $this->document($snapshot, $portfolio, $result)];
     }
