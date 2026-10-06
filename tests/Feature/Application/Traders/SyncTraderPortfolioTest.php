@@ -607,6 +607,66 @@ it('fails closed on a malformed portfolio payload without storing anything', fun
     Http::assertSentCount(1);
 });
 
+it('records a sanitized mapping diagnosis on a mapping_failed run (D-044)', function () {
+    $payload = portfolioSyncFixture('live-portfolio');
+    $payload['positions'][3]['openTimestamp'] = 'sentinel-bad-timestamp-value';
+    fakePortfolioSync([PORTFOLIO_SYNC_LIVE_URL => Http::response($payload, 200)]);
+
+    $result = app(SyncTraderPortfolio::class)->handle(portfolioSyncTrader());
+    $importRun = $result->importRun;
+
+    expect($result->stopReason)->toBe(SyncTraderPortfolioStopReason::MappingFailed)
+        ->and($importRun->metadata['mapping_error'])->toBe([
+            'mapper' => 'LivePortfolioMapper',
+            'field_path' => 'positions[3].openTimestamp',
+            'reason' => 'malformed_timestamp',
+            'expected_type' => null,
+            'actual_type' => null,
+        ])
+        ->and($importRun->error_summary)->toBe('Trader portfolio sync failed: mapping_failed (malformed_timestamp at positions[3].openTimestamp).')
+        ->and(json_encode($importRun->metadata))->not->toContain('sentinel-bad-timestamp-value')
+        ->and(json_encode($importRun->metadata))->not->toContain('trader_001')
+        ->and($importRun->error_summary)->not->toContain('sentinel');
+});
+
+it('records expected and actual type names, never values, for a type mismatch', function () {
+    $payload = portfolioSyncFixture('live-portfolio');
+    $payload['positions'][0]['investmentPct'] = 'sentinel-string-weight';
+    fakePortfolioSync([PORTFOLIO_SYNC_LIVE_URL => Http::response($payload, 200)]);
+
+    $importRun = app(SyncTraderPortfolio::class)->handle(portfolioSyncTrader())->importRun;
+
+    expect($importRun->metadata['mapping_error'])->toMatchArray([
+        'field_path' => 'positions[0].investmentPct',
+        'reason' => 'invalid_primitive_type',
+        'expected_type' => 'int|float',
+        'actual_type' => 'string',
+    ])->and(json_encode($importRun->metadata))->not->toContain('sentinel-string-weight');
+});
+
+it('omits mapping_error metadata when the run did not fail on mapping', function () {
+    fakePortfolioSync();
+
+    $importRun = app(SyncTraderPortfolio::class)->handle(portfolioSyncTrader())->importRun;
+
+    expect($importRun->metadata)->not->toHaveKey('mapping_error');
+});
+
+it('syncs the live shape with fractional-second open timestamps (D-044)', function () {
+    fakePortfolioSync([PORTFOLIO_SYNC_LIVE_URL => Http::response(portfolioSyncFixture('live-portfolio-fractional-timestamps'), 200)]);
+
+    $result = app(SyncTraderPortfolio::class)->handle(portfolioSyncTrader());
+
+    expect($result->stopReason)->toBe(SyncTraderPortfolioStopReason::Completed)
+        ->and($result->snapshot->position_count)->toBe(4)
+        ->and($result->snapshot->cash_weight_ppb)->toBe(45_000_000)
+        ->and($result->snapshot->invested_weight_ppb)->toBe(955_000_000);
+
+    // Stored at second precision (the hashed normalized form).
+    expect(PortfolioPosition::query()->orderBy('position_index')->get()->map(fn (PortfolioPosition $position): string => $position->opened_at->format('Y-m-d H:i:s'))->all())
+        ->toBe(['2021-03-04 14:22:31', '2022-11-17 09:05:12', '2023-06-30 20:59:59', '2024-01-02 08:00:00']);
+});
+
 it('stops before any request when credentials are missing', function () {
     config(['etoro.api_key' => null]);
     Http::fake();

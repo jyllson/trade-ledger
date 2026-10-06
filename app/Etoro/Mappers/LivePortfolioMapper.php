@@ -25,11 +25,17 @@ final class LivePortfolioMapper
     private const MAPPER_NAME = 'LivePortfolioMapper';
 
     /**
-     * Only format supported in this checkpoint — matches the observed
-     * eToro shape (e.g. "2012-01-10T09:15:00Z"). A future format needs an
+     * Only formats supported — both observed live (docs/DECISIONS.md
+     * D-044): whole seconds ("2012-01-10T09:15:00Z") and a fractional
+     * second of 1–7 digits with trailing zeros trimmed
+     * ("2012-01-10T09:15:00.12Z"). Always UTC `Z`. A future format needs an
      * explicit, reviewed extension, not silent tolerance.
      */
     private const TIMESTAMP_FORMAT = 'Y-m-d\TH:i:s\Z';
+
+    private const FRACTIONAL_TIMESTAMP_PATTERN = '/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d{1,7})Z$/D';
+
+    private const FRACTIONAL_TIMESTAMP_FORMAT = 'Y-m-d\TH:i:s.u\Z';
 
     /**
      * @param  array<string, mixed>  $payload
@@ -176,8 +182,10 @@ final class LivePortfolioMapper
             throw EtoroMappingException::invalidPrimitiveType(self::MAPPER_NAME, $fieldPath, 'string', get_debug_type($raw));
         }
 
+        [$candidate, $format] = $this->normalizedTimestamp($raw);
+
         try {
-            $parsed = DateTimeImmutable::createFromFormat(self::TIMESTAMP_FORMAT, $raw, new DateTimeZone('UTC'));
+            $parsed = DateTimeImmutable::createFromFormat($format, $candidate, new DateTimeZone('UTC'));
         } catch (ValueError) {
             // createFromFormat() throws ValueError when the decoded string
             // contains a null byte, for example from a JSON Unicode null escape.
@@ -196,11 +204,30 @@ final class LivePortfolioMapper
         // unpadded month/day, or a date that rolled over) without raising a
         // warning/error. Re-formatting and comparing against the original
         // string is the only way to catch that.
-        if ($parsed->format(self::TIMESTAMP_FORMAT) !== $raw) {
+        if ($parsed->format($format) !== $candidate) {
             throw EtoroMappingException::malformedTimestamp(self::MAPPER_NAME, $fieldPath);
         }
 
         return $parsed;
+    }
+
+    /**
+     * A fractional second is padded/truncated to the 6 digits PHP's `u`
+     * accepts (a 7th, sub-microsecond digit is dropped), so the strict
+     * re-format comparison still applies. Anything else is parsed as-is
+     * against the whole-second format.
+     *
+     * @return array{string, string} the string to parse and its format
+     */
+    private function normalizedTimestamp(string $raw): array
+    {
+        if (preg_match(self::FRACTIONAL_TIMESTAMP_PATTERN, $raw, $matches) === 1) {
+            $microseconds = substr(str_pad($matches[2], 6, '0'), 0, 6);
+
+            return ["{$matches[1]}.{$microseconds}Z", self::FRACTIONAL_TIMESTAMP_FORMAT];
+        }
+
+        return [$raw, self::TIMESTAMP_FORMAT];
     }
 
     /**

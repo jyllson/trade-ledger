@@ -80,8 +80,8 @@ final class SyncTraderPortfolio
 
             try {
                 $portfolio = $this->livePortfolioMapper->map($apiResponse->payload);
-            } catch (EtoroMappingException) {
-                return $this->finalize($importRun, SyncTraderPortfolioStopReason::MappingFailed, $requestCount);
+            } catch (EtoroMappingException $exception) {
+                return $this->finalize($importRun, SyncTraderPortfolioStopReason::MappingFailed, $requestCount, mappingError: $exception);
             }
 
             $positions = $this->normalizedPositions($portfolio);
@@ -308,6 +308,7 @@ final class SyncTraderPortfolio
         bool $snapshotCreated = false,
         ?EnrichInstrumentMetadataResult $enrichment = null,
         ?int $retryAfterSeconds = null,
+        ?EtoroMappingException $mappingError = null,
     ): SyncTraderPortfolioResult {
         $completed = $stopReason === SyncTraderPortfolioStopReason::Completed;
         $degraded = $enrichment !== null && $enrichment->status->isDegraded();
@@ -323,7 +324,7 @@ final class SyncTraderPortfolio
             'failure_count' => $completed ? ($enrichment->failedRequestCount ?? 0) : 1,
             'finished_at' => now(),
             'error_summary' => match (true) {
-                ! $completed => $this->errorSummary($stopReason),
+                ! $completed => $this->errorSummary($stopReason, $mappingError),
                 $degraded => 'Portfolio snapshot stored; instrument metadata enrichment was incomplete.',
                 default => null,
             },
@@ -333,6 +334,7 @@ final class SyncTraderPortfolio
                 'snapshot_created' => $snapshotCreated,
                 'position_count' => $snapshot->position_count ?? 0,
                 'enrichment' => $enrichment?->toMetadata(),
+                ...($mappingError !== null ? ['mapping_error' => $this->mappingErrorMetadata($mappingError)] : []),
             ]),
         ])->save();
 
@@ -350,12 +352,36 @@ final class SyncTraderPortfolio
      * Static and sanitized — category only, never an exception message,
      * URL, payload, credential, or trader identity.
      */
-    private function errorSummary(SyncTraderPortfolioStopReason $stopReason): string
+    private function errorSummary(SyncTraderPortfolioStopReason $stopReason, ?EtoroMappingException $mappingError): string
     {
         return match ($stopReason) {
+            SyncTraderPortfolioStopReason::MappingFailed => sprintf(
+                'Trader portfolio sync failed: mapping_failed (%s at %s).',
+                $mappingError->reason->value ?? 'unknown',
+                $mappingError->fieldPath ?? 'unknown',
+            ),
             SyncTraderPortfolioStopReason::UnexpectedFailure => 'Unexpected persistence failure while syncing trader portfolio.',
             SyncTraderPortfolioStopReason::NotVisible => 'Trader portfolio is not visible (trader opted out of portfolio exposure).',
             default => sprintf('Trader portfolio sync failed: %s.', $stopReason->value),
         };
+    }
+
+    /**
+     * Structural diagnosis of a rejected payload (D-044) so a failed run can
+     * be explained without another live request. EtoroMappingException
+     * carries only static field paths, a reason code and type names — never
+     * a value, identity or payload fragment.
+     *
+     * @return array{mapper: string, field_path: string, reason: string, expected_type: string|null, actual_type: string|null}
+     */
+    private function mappingErrorMetadata(EtoroMappingException $exception): array
+    {
+        return [
+            'mapper' => $exception->mapper,
+            'field_path' => $exception->fieldPath,
+            'reason' => $exception->reason->value,
+            'expected_type' => $exception->expectedType,
+            'actual_type' => $exception->actualType,
+        ];
     }
 }

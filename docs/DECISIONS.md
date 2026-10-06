@@ -1955,3 +1955,56 @@ D-023); snapshot-i se čuvaju od D-038.
      `reproduces()` (red trenutne metodologije upisan mimo granica, npr.
      direktno u bazu) i prikazuje „Not reproducible — out of range“, nikad
      500.
+
+## D-044: Live portfolio — razlomak sekunde u `openTimestamp` i dijagnoza `mapping_failed`
+
+**Datum:** 2026-10-06
+**Status:** usvojeno (Milestone 4, Checkpoint F; live pozivi 3–4/10 iz
+dnevnog pool-a)
+
+**Kontekst:** live `etoro:sync-portfolio --now` nad dev bazom vratio je
+`mapping_failed` (HTTP uspeo, 1 zahtev, bez snapshot-a). ImportRun nije
+čuvao razlog, pa je dijagnoza tražila live poziv.
+
+**Dokaz (samo šema/tipovi, bez vrednosti i identiteta):**
+
+- Poziv 3 (stari mapper): `EtoroMappingException` na
+  `positions[i].openTimestamp`, razlog `malformed_timestamp`. Ostatak šeme
+  identičan D-037: ista polja pozicija, tipovi očekivani, `socialTrades`
+  prazan, Σ `investmentPct` + `realizedCreditPct` ≈ 100.
+- Poziv 4 (popravljen mapper, bez upisa u bazu): oblici `openTimestamp`
+  (cifre maskirane) — `9999-99-99T99:99:99.999Z`, `…99.99Z` i `…99.9Z`
+  (razlomak sekunde 1–3 cifre, nule na kraju odsečene, uvek `Z`). Svih
+  225 pozicija mapirano, nijedan `openedAt` null, keš poznat.
+- Uzorci iz D-037 imali su samo cele sekunde (`…:SSZ`) — mapper je
+  podržavao samo taj oblik, namerno strogo („nov format = eksplicitno
+  proširenje“). Ovo je to proširenje; nije privatan/prazan portfolio ni
+  smart-portfolio specifičnost.
+- Uzgred (bez promene ponašanja): `takeProfitRate` je 0 u velikoj većini
+  pozicija, `stopLossRate` povremeno 0 — verovatno „nije postavljen“;
+  semantika nepotvrđena, vrednosti se i dalje čuvaju kakve jesu.
+
+**Odluka:**
+
+1. `LivePortfolioMapper` prihvata tačno dva oblika, oba UTC sa `Z`: cele
+   sekunde i `.` + 1–7 cifara razlomka. Razlomak se dopunjuje/odseca na 6
+   cifara (PHP `u`; 7. cifra, ispod mikrosekunde, se odbacuje), a striktna
+   provera re-formatiranjem ostaje. I dalje se odbijaju: offset umesto
+   `Z`, razlomak bez `Z`, `.` bez cifara, > 7 cifara, zarez, nevažeći
+   datum, null bajt. Neparsiran timestamp se ne degradira u `null` —
+   tiho gubljenje datuma otvaranja sakrilo bi budući drift formata.
+2. Sačuvana pozicija i `source_hash` i dalje koriste `opened_at` na
+   sekundu (`Y-m-d H:i:s`); `HASH_VERSION` ostaje `portfolio-v1` (za cele
+   sekunde normalizovan sadržaj je nepromenjen).
+3. `mapping_failed` ImportRun čuva `metadata.mapping_error` =
+   `{mapper, field_path, reason, expected_type, actual_type}` iz
+   `EtoroMappingException`, a `error_summary` postaje
+   „… mapping_failed (<reason> at <field_path>).“. Izuzetak po ugovoru
+   nosi samo statičke putanje polja (sa indeksom pozicije), kod razloga i
+   imena tipova (`get_debug_type`) — nikad vrednost, payload ili
+   identitet. Ključ postoji samo na `mapping_failed` run-ovima.
+4. Testovi: sintetički `live-portfolio-fractional-timestamps.json` (ista
+   struktura kao stvarni payload, izmišljene vrednosti, mešoviti oblici
+   timestamp-a, pozitivan keš); unit testovi prihvatanja/odbijanja
+   razlomka; feature testovi dijagnostike (bez curenja sentinel vrednosti)
+   i sync-a sa razlomcima.

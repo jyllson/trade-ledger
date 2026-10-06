@@ -1943,3 +1943,27 @@ nevalidnim unosom — bez nalaza osim preloma `methodology_version` kolone
 ### Bezbednost
 
 Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
+
+## 2026-10-06 — Milestone 4, Checkpoint F: live `mapping_failed` portfolija (D-044)
+
+- Uzrok: stvarni `openTimestamp` ima razlomak sekunde (1–3 cifre + `Z`);
+  mapper je prihvatao samo cele sekunde → `malformed_timestamp` na
+  `positions[i].openTimestamp`.
+- `LivePortfolioMapper`: podržan `.` + 1–7 cifara razlomka (UTC `Z`),
+  striktna provera ostaje; ostali oblici se i dalje odbijaju.
+- `SyncTraderPortfolio`: `mapping_failed` run čuva sanitizovan
+  `metadata.mapping_error` (mapper, putanja polja, razlog, imena tipova) i
+  razlog u `error_summary`.
+- Fixture `tests/Fixtures/Etoro/live-portfolio-fractional-timestamps.json`
+  (sintetički); unit + feature testovi.
+- Live: 2 read-only GET poziva (#3 dijagnoza šeme, #4 provera popravke bez
+  upisa u bazu), upisani u privatni ledger; ništa od payload-a nije
+  sačuvano. Live sync posle popravke nije ponovo pokrenut.
+- Verifikacija: `php artisan test --compact` 1803 total, 1799 passed,
+  4 skipped, 1 poznato upozorenje; `pint --test` passed;
+  `composer types:check` 0 errors.
+
+### Bezbednost
+
+Bez `.env`; bez novih paketa; bez brisanja podataka iz dev baze; bez
+commit-a.
