@@ -1893,7 +1893,8 @@ D-023); snapshot-i se čuvaju od D-038.
 
 **Odluka:**
 
-1. **Privatan / nepronađen portfolio skriva sačuvane snapshot-e u UI-ju.**
+1. **[SUPERSEDED — D-045, 2026-10-06, odluka vlasnika]** ~~Privatan /
+   nepronađen portfolio skriva sačuvane snapshot-e u UI-ju.~~
    Kad je `traders.portfolio_visibility` `private` ili `not_found`, sekcija
    „Portfolio“ i simulator prikazuju prazno stanje sa razlogom i brojem
    sačuvanih snapshot-a (ostaju u bazi, D-038), umesto da stari snapshot
@@ -1921,7 +1922,8 @@ D-023); snapshot-i se čuvaju od D-038.
    težine pozicija = udeo celog portfolija; koncentracija/leverage =
    invested-only (D-041); coverage = udeo pozitivne težine pozicija
    (D-022). Vremena u Blade prikazu su `Europe/Malta` sa oznakom zone
-   (§9); postojeći infolist `dateTime()` unosi su ostali nepromenjeni.
+   (§9); postojeći infolist `dateTime()` unosi su ostali nepromenjeni
+   (prošireno na ceo UI u D-046).
    Opcija „use visible cash allocation“ iz §15 nije dodata — keš se uvek
    prikazuje odvojeno, a kalkulator nema taj ulaz.
 6. **Gornja granica unosa i rezultat van opsega.** Iznos kopiranja i
@@ -2008,3 +2010,75 @@ dnevnog pool-a)
    timestamp-a, pozitivan keš); unit testovi prihvatanja/odbijanja
    razlomka; feature testovi dijagnostike (bez curenja sentinel vrednosti)
    i sync-a sa razlomcima.
+
+## D-045: Privatan / nepronađen portfolio — prikaz poslednjeg poznatog snapshot-a
+
+**Datum:** 2026-10-06
+**Status:** usvojeno (Milestone 4, Checkpoint F; odluka vlasnika; zamenjuje
+D-043 tačku 1; bez live poziva)
+
+**Kontekst:** D-043 tačka 1 je za `portfolio_visibility` `private` /
+`not_found` skrivala sve sačuvane snapshot-e. Vlasnik je odlučio da je
+poslednji poznati portfolio korisniji od praznog stanja, pod uslovom da je
+jasno označen kao zastareo.
+
+**Odluka:**
+
+1. `BuildTraderPortfolioReport` uvek vraća poslednji sačuvani snapshot
+   (`captured_at` desc, `id` desc), bez obzira na vidljivost.
+   `TraderPortfolioReport::isStale()` = postoji snapshot ∧ vidljivost je
+   `private`/`not_found` (`isNoLongerVisible()`).
+2. Sekcija „Portfolio“ tada prikazuje pozicije, koncentraciju i leverage
+   tog snapshot-a, a na vrhu Filament `callout` (`warning`, ikona,
+   kompajlirani dark-mode stil): „Last known snapshot — may be outdated“ /
+   „Portfolio is now private — showing the last known snapshot from
+   <`last_confirmed_at`, Europe/Malta + zona>; the data may be outdated.“
+   (za `not_found`: „This trader was not found on eToro by the last
+   portfolio sync — …“). Datum je `last_confirmed_at` — poslednji trenutak
+   kad je taj sadržaj stvarno viđen (D-038).
+3. Copy simulator radi nad istim snapshot-om sa istim upozorenjem iznad
+   unosa i `danger` badge-om „Stale snapshot — last known, not current“
+   uz rezultat; „Save simulation“ je dozvoljen (simulacija je vezana za
+   `portfolio_snapshot_id` i reproducibilna), a obaveštenje o čuvanju
+   navodi da je snapshot zastareo. Metodologija i `result` dokument
+   (`copy-simulation-v1`) se ne menjaju — zastarelost je osobina prikaza,
+   ne izračunavanja.
+4. Bez sačuvanog snapshot-a: prazno stanje kao do sada (sa razlogom
+   private/not found). Javan portfolio: bez upozorenja.
+5. Sync ne menja ponašanje: privatan/nepronađen ishod i dalje ažurira samo
+   `portfolio_visibility` (ne `portfolio_synced_at`), snapshot-i ostaju.
+
+## D-046: Prikaz vremena u UI-ju — Europe/Malta sa oznakom zone
+
+**Datum:** 2026-10-06
+**Status:** usvojeno (Milestone 4, Checkpoint F; odluka vlasnika)
+
+**Odluka:**
+
+1. **Čuvanje ostaje UTC.** `app.timezone` ostaje `UTC`: od njega zavise
+   Eloquent serijalizacija, `now()`, scheduler (03:00 UTC), granice
+   perioda i `source_hash` — promena bi pomerila upisane vrednosti, a ne
+   prikaz. Podaci i migracije se ne menjaju.
+2. **Jedno mesto za prikaz:** novi `config('app.display_timezone')` =
+   `Europe/Malta` i `App\Filament\Support\DateTimeDisplay`
+   (`FORMAT = 'Y-m-d H:i T'`, format uveden u Checkpoint E, npr.
+   „2026-10-06 10:30 CEST“ / „2026-01-15 11:00 CET“).
+   `DateTimeDisplay::configureFilament()` (poziva se iz
+   `AppServiceProvider::boot()`) postavlja `FilamentTimezone` i
+   podrazumevani date-time format za `Table` i `Schema`
+   (`configureUsing`), pa SVI postojeći `->dateTime()` unosi i kolone
+   (TraderResource tabela/infolist, „Performance sync“ / „Portfolio sync“
+   „Last successful sync“, ImportRunResource tabela, infolist i relation
+   manager-i) prikazuju Malta vreme bez izmene po polju. Custom Blade
+   widget-i (portfolio, simulator, sačuvane simulacije) koriste
+   `DateTimeDisplay::format()` umesto lokalnih `setTimezone()` poziva.
+3. **Šta nije timestamp:** periodi performansi (`Y-m`, dnevni `Y-m-d`
+   datumi i ose grafikona) su kalendarski periodi eToro serije (UTC dan /
+   mesec, D-032), ne trenuci — ostaju nepromenjeni; konverzija bi pomerila
+   ponoćni UTC dan na pogrešan datum. DiscoverTraders i notifikacije
+   trenutno ne prikazuju vreme.
+4. CLI izlaz (`etoro:*` komande) nije UI panela i ostaje kakav je.
+5. Testovi: `tests/Feature/Filament/DisplayTimezoneTest.php` — helper kroz
+   leto/zimu i oba DST prelaza (uklj. 2026-10-25 02:59 CEST → 02:00 CET),
+   UTC čuvanje, TraderResource tabela i stranica tradera, ImportRun
+   tabela i stranica.

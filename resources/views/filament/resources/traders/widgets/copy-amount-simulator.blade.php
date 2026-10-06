@@ -15,8 +15,19 @@
 <x-filament-widgets::widget>
     <x-filament::section heading="Copy Amount Simulator" description="Simulates copying this trader with a given amount over the latest STORED portfolio snapshot — no eToro request is made. A position is copied when amount × its weight reaches the minimum position amount (§12.1). Weights are shares of the whole portfolio; coverage is relative to the invested weight (Σ positive position weights, cash excluded; D-022).">
         @if (! $available)
-            <p style="font-size: 0.875rem; opacity: 0.7;">The simulator needs a stored, visible portfolio snapshot — see the Portfolio section above.</p>
+            <p style="font-size: 0.875rem; opacity: 0.7;">The simulator needs a stored portfolio snapshot — see the Portfolio section above.</p>
         @else
+            @if ($staleWarning !== null)
+                <x-filament::callout
+                    color="warning"
+                    icon="heroicon-o-exclamation-triangle"
+                    heading="Simulating over the last known snapshot — may be outdated"
+                    :description="$staleWarning"
+                    data-simulator-stale-warning
+                    style="margin-bottom: 1rem;"
+                />
+            @endif
+
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; align-items: start;">
                 <div>
                     <label for="simulator-amount" style="{{ $label }}">Copy amount (USD)</label>
@@ -50,6 +61,9 @@
 
             @if ($simulation !== null)
                 <div style="margin-top: 1.25rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    @if ($staleWarning !== null)
+                        <x-filament::badge color="danger">Stale snapshot — last known, not current</x-filament::badge>
+                    @endif
                     @if ($simulation['is_estimate'])
                         <x-filament::badge color="warning">Estimate — see warnings</x-filament::badge>
                     @else

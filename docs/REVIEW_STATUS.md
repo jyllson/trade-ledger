@@ -1,7 +1,79 @@
 # REVIEW_STATUS — TradeLedger
 
-**Trenutni implementation stream:** nijedan aktivan.
-**Poslednje ažuriranje:** 2026-10-05 (Milestone 3 merge)
+**Trenutni implementation stream:** Milestone 4 — implementacija završena
+na grani `codex/milestone-4-portfolio-simulator`; čeka PR/merge u `main`.
+**Poslednje ažuriranje:** 2026-10-06 (Milestone 4, Checkpoint F — zatvaranje)
+
+## ✅ Product Milestone 4 — COMPLETE na grani (portfolio i copy simulator)
+
+Grana `codex/milestone-4-portfolio-simulator`, PR još nije otvoren/merge-ovan.
+
+| Checkpoint | Commit | Sadržaj | Odluke |
+|---|---|---|---|
+| A | `772950b` | domen live portfolija (keš), metapodaci instrumenata | D-037 |
+| B | `7b488f2` | `instruments`, `portfolio_snapshots`, `portfolio_positions`, idempotentni importer, queued job + `etoro:sync-portfolio`, rate limit po HTTP pokušaju, timeout job-ova | D-038–D-040 |
+| C | `00f2018` | koncentracija (HHI, efektivne pozicije, top-3) i leverage izloženost | D-041 |
+| D | `3935842` | sačuvane copy simulacije, preseti, target matrica, `etoro:simulate-copy` | D-042 |
+| E | `dabbf02` | Filament portfolio sekcija i Livewire Copy Amount Simulator | D-043 |
+| live fix | `07eae04` | razlomak sekunde u `openTimestamp`, dijagnoza `mapping_failed` | D-044 |
+| F | (ovaj, necommit-ovan) | privatan portfolio → poslednji poznati snapshot uz upozorenje; sva UI vremena u Europe/Malta; dokumentacija | D-045, D-046 |
+
+**`PROJECT.md` §20 M4 acceptance:**
+
+1. *Simulator objašnjava svaku preskočenu poziciju* — svaka pozicija nosi
+   `skip_reason` (`below_minimum`/`zero_weight`/`negative_weight`) i
+   rečenicu objašnjenja sa procenjenim iznosom i iznosom od kog se kopira;
+   `SimulateCopyAmountTest` („explains every skipped position…“) i
+   `TraderPortfolioViewTest` (UI tabela „Skipped positions“).
+2. *$200/$500/$1,000 preseti* — `CopyAmountPreset`;
+   `BuildCopySimulationMatrixTest` („defines the $200/$500/$1,000
+   presets…“, „builds presets × eligible/skipped/coverage…“), UI test
+   prebacivanja preseta bez HTTP poziva.
+3. *90/95/99/100% target kalkulacije* — `CoverageTargetPreset` i matrica
+   (§12.2/§12.3, 100% informativno); `BuildCopySimulationMatrixTest`
+   (ručno izračunati iznosi, nedostižan target, granice opsega) i UI test
+   target matrice.
+4. *Rezultati reproducibilni iz sačuvanog snapshot-a* — `copy_simulations`
+   sa `methodology_version` i `reproduces()`/`recalculate()`;
+   `SimulateCopyAmountTest` („recalculates a stored simulation
+   bit-identically…“), UI lista sačuvanih simulacija prikazuje ishod
+   provere, CLI `--snapshot=`.
+
+**Live verifikacija 2026-10-06** (dev baza `trade_ledger`, read-only GET):
+`etoro:sync-portfolio --now` posle popravke D-044 — run `completed`,
+225 pozicija, 66 instrumenata, svi sa asset class-om; ponovljen sync =
+nepromenjen snapshot (samo potvrda) i 1 zahtev. Live pozivi danas: 8/10
+iz dnevnog pool-a, zabeleženi u privatnom ledger-u. U dokumentaciji nema
+username-ova ni vrednosti pozicija.
+
+**Review runde (ukratko):**
+
+- A: domen keša i metapodataka (D-037), bez review nalaza zabeleženih u WORKLOG-u.
+- B: dve runde review-a (ispravke persistence/idempotentnosti; throttle
+  prepravljen sa blokirajućeg čekanja na neblokirajući — D-039) + timeout
+  guard za job-ove (D-040).
+- C: jedan nalaz — leverage completeness (nepoznat leverage se nikad ne
+  tretira kao 1x).
+- D: bez review nalaza zabeleženih u WORKLOG-u.
+- E: dve runde — prekoračenje opsega (`$10M` granica, D-043 tačka 6) i
+  sačuvana simulacija van opsega u listi.
+- Live fix: `mapping_failed` dijagnostikovan sa 2 live poziva (D-044).
+- F: odluke vlasnika D-045 (zastareli snapshot) i D-046 (vremenska zona).
+
+**Checkpoint F verifikacija:** `php artisan test --compact` 1820 total,
+1816 passed, 4 skipped, 1 poznato nepovezano upozorenje;
+`vendor/bin/pint --test` passed; `composer types:check` 0 errors; asseti
+nisu menjani (`npm run build` nije potreban). Vizuelni QA: headless Chrome
+nad izolovanom sintetičkom SQLite bazom (`/private/tmp/tl-qa-m4f/`),
+light i dark, privatan portfolio sa upozorenjem — upozorenje vidljivo u
+oba moda, vremena u CEST.
+
+**Šta sledi:** commit Checkpoint-a F, PR i merge M4 u `main`; zatim
+Milestone 5 (poređenje tradera) po odluci vlasnika.
+
+---
+
+## Istorija: Milestone 3 zapis
 
 ## ✅ Product Milestone 3 — COMPLETE (performance analytics)
 

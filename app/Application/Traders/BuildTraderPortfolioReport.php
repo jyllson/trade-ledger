@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Application\Traders;
 
-use App\Models\PerformanceVisibility;
 use App\Models\PortfolioPosition;
 use App\Models\PortfolioSnapshot;
 use App\Models\Trader;
@@ -14,9 +13,10 @@ use App\Models\Trader;
  * never calls the eToro API, so rendering makes no HTTP request
  * (D-031/D-041/D-043).
  *
- * A private / not-found portfolio hides the stored snapshots: they describe
- * a portfolio that can no longer be observed, so neither the portfolio
- * section nor the simulator presents them as current (D-043).
+ * A private / not-found portfolio still shows the latest stored snapshot,
+ * flagged as stale (TraderPortfolioReport::isStale()): the portfolio section
+ * and the simulator present it as the last KNOWN portfolio, never as the
+ * current one (D-045, supersedes D-043 point 1).
  *
  * Bound as a scoped singleton and memoized per trader, because the portfolio
  * widget and the simulator read the same report in one request.
@@ -38,10 +38,8 @@ final class BuildTraderPortfolioReport
     private function build(Trader $trader): TraderPortfolioReport
     {
         $storedSnapshotCount = $trader->portfolioSnapshots()->count();
-        $hidden = $trader->portfolio_visibility === PerformanceVisibility::Private
-            || $trader->portfolio_visibility === PerformanceVisibility::NotFound;
 
-        $snapshot = $hidden || $storedSnapshotCount === 0 ? null : PortfolioSnapshot::query()
+        $snapshot = $storedSnapshotCount === 0 ? null : PortfolioSnapshot::query()
             ->where('trader_id', $trader->id)
             ->orderByDesc('captured_at')
             ->orderByDesc('id')

@@ -17,6 +17,7 @@ use App\Application\Traders\CoverageTargetPreset;
 use App\Application\Traders\SimulateCopyAmount;
 use App\Application\Traders\TraderPortfolioReport;
 use App\Application\Traders\UnsupportedCopySimulationMethodology;
+use App\Filament\Support\DateTimeDisplay;
 use App\Filament\Support\NumberDisplay;
 use App\Filament\Support\PercentageDisplay;
 use App\Models\CopySimulation;
@@ -34,10 +35,12 @@ use Filament\Widgets\Widget;
 /**
  * Livewire CopyAmountSimulator (PROJECT.md Flow D, §15; D-042, D-043).
  *
- * Every figure is computed from the latest STORED, visible snapshot by
+ * Every figure is computed from the latest STORED snapshot by
  * SimulateCopyAmount::preview() and BuildCopySimulationMatrix — input
  * changes never call the eToro API. "Save simulation" persists exactly the
- * previewed document through SimulateCopyAmount::handle().
+ * previewed document through SimulateCopyAmount::handle(). When the
+ * portfolio is no longer visible, that snapshot is the last known one and
+ * the widget says so above the inputs and on the result (D-045).
  */
 class CopyAmountSimulator extends Widget implements HasActions, HasSchemas
 {
@@ -96,13 +99,14 @@ class CopyAmountSimulator extends Widget implements HasActions, HasSchemas
             ->action(function (SimulateCopyAmount $simulateCopyAmount): void {
                 $this->validate();
 
-                $snapshot = $this->report()?->snapshot;
+                $report = $this->report();
+                $snapshot = $report?->snapshot;
                 $amount = CopySimulationInput::parseUsd($this->amount);
                 $minimum = CopySimulationInput::parseUsd($this->minimumPositionAmount);
 
                 if ($snapshot === null || $amount === null || $minimum === null) {
                     Notification::make()
-                        ->title('Nothing was saved — no stored, visible portfolio snapshot.')
+                        ->title('Nothing was saved — no stored portfolio snapshot.')
                         ->warning()
                         ->send();
 
@@ -120,9 +124,13 @@ class CopyAmountSimulator extends Widget implements HasActions, HasSchemas
                     return;
                 }
 
+                $stale = $report->isStale()
+                    ? ' The snapshot is the last known one of a portfolio that is no longer visible and may be outdated.'
+                    : '';
+
                 Notification::make()
                     ->title('Simulation saved')
-                    ->body(sprintf('Saved simulation #%d over snapshot #%d (%s). It can be recalculated from the stored snapshot at any time.', $simulation->id, $snapshot->id, $simulation->methodology_version))
+                    ->body(sprintf('Saved simulation #%d over snapshot #%d (%s). It can be recalculated from the stored snapshot at any time.%s', $simulation->id, $snapshot->id, $simulation->methodology_version, $stale))
                     ->success()
                     ->send();
             });
@@ -168,6 +176,7 @@ class CopyAmountSimulator extends Widget implements HasActions, HasSchemas
             'presets' => array_map(fn (CopyAmountPreset $preset): array => ['cents' => $preset->value, 'label' => $preset->label()], CopyAmountPreset::cases()),
             'saved' => $this->savedSimulations(),
             'available' => $report?->snapshot !== null,
+            'staleWarning' => $report === null ? null : TraderPortfolio::staleWarning($report),
             'simulation' => null,
             'simulation_out_of_range' => false,
             'matrix' => null,
@@ -353,7 +362,7 @@ class CopyAmountSimulator extends Widget implements HasActions, HasSchemas
 
                 return [
                     'id' => $simulation->id,
-                    'calculated_at' => $simulation->calculated_at->copy()->setTimezone('Europe/Malta')->format('Y-m-d H:i T'),
+                    'calculated_at' => DateTimeDisplay::format($simulation->calculated_at),
                     'snapshot' => '#'.$simulation->portfolio_snapshot_id,
                     'amount' => NumberDisplay::usd($simulation->copy_amount_cents),
                     'minimum_position' => NumberDisplay::usd($simulation->minimum_position_amount_cents),

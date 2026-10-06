@@ -134,26 +134,96 @@ it('shows an empty portfolio state when no snapshot is stored', function () {
         ->assertSee('No portfolio snapshot stored yet. Use “Sync portfolio”.');
 
     Livewire::test(CopyAmountSimulator::class, ['record' => $trader])
-        ->assertSee('The simulator needs a stored, visible portfolio snapshot')
+        ->assertSee('The simulator needs a stored portfolio snapshot')
         ->assertDontSee('Save simulation');
 });
 
-it('hides stored snapshots of a portfolio that is now private', function () {
+it('shows the last known snapshot of a portfolio that is now private, with a prominent warning', function () {
     $trader = Trader::factory()->create();
     exposurePortfolioSnapshot($trader);
     $trader->forceFill(['portfolio_visibility' => PerformanceVisibility::Private])->save();
 
     Livewire::test(TraderPortfolio::class, ['record' => $trader])
-        ->assertSee('found this portfolio private (the trader opted out)')
-        ->assertSee('1 older stored snapshot(s) are kept but not shown')
-        ->assertDontSee('Apple (AAPL)');
-
-    Livewire::test(CopyAmountSimulator::class, ['record' => $trader])
-        ->assertSee('The simulator needs a stored, visible portfolio snapshot')
-        ->assertDontSee('Presets');
+        ->assertOk()
+        ->assertSeeHtml('data-portfolio-stale-warning')
+        ->assertSee('Last known snapshot — may be outdated')
+        ->assertSee('Portfolio is now private — showing the last known snapshot from 2026-10-06 10:30 CEST; the data may be outdated.')
+        ->assertSeeInOrder(['Portfolio is now private', 'Snapshot captured', 'Apple (AAPL)', 'By instrument', 'Leverage exposure'])
+        ->assertSeeInOrder(['Apple (AAPL)', 'Stocks', 'Buy', '60.0000 %', '1x'])
+        ->assertSeeInOrder(['By instrument', 'Complete', '46.00 %', '2.17'])
+        ->assertSeeInOrder(['Known leverage contribution', '1.20x']);
 
     Livewire::test(ViewTrader::class, ['record' => $trader->id])
         ->assertSee('Private (opted out)');
+
+    Http::assertNothingSent();
+});
+
+it('shows the last known snapshot of a trader that is no longer found, with a warning', function () {
+    $trader = Trader::factory()->create();
+    exposurePortfolioSnapshot($trader);
+    $trader->forceFill(['portfolio_visibility' => PerformanceVisibility::NotFound])->save();
+
+    Livewire::test(TraderPortfolio::class, ['record' => $trader])
+        ->assertSee('This trader was not found on eToro by the last portfolio sync — showing the last known snapshot from 2026-10-06 10:30 CEST; the data may be outdated.')
+        ->assertSee('Apple (AAPL)');
+});
+
+it('shows the empty state for a private portfolio without any stored snapshot', function (PerformanceVisibility $visibility, string $reason) {
+    $trader = Trader::factory()->create(['portfolio_visibility' => $visibility]);
+
+    Livewire::test(TraderPortfolio::class, ['record' => $trader])
+        ->assertSee($reason)
+        ->assertSee('no earlier snapshot is stored')
+        ->assertDontSeeHtml('data-portfolio-stale-warning')
+        ->assertDontSee('Last known snapshot');
+
+    Livewire::test(CopyAmountSimulator::class, ['record' => $trader])
+        ->assertSee('The simulator needs a stored portfolio snapshot')
+        ->assertDontSeeHtml('data-simulator-stale-warning')
+        ->assertDontSee('Presets');
+
+    Http::assertNothingSent();
+})->with([
+    'private' => [PerformanceVisibility::Private, 'found this portfolio private (the trader opted out)'],
+    'not found' => [PerformanceVisibility::NotFound, 'did not find this trader on eToro'],
+]);
+
+it('shows no stale warning while the portfolio is public', function () {
+    $trader = Trader::factory()->create();
+    exposurePortfolioSnapshot($trader);
+
+    Livewire::test(TraderPortfolio::class, ['record' => $trader])
+        ->assertSee('Apple (AAPL)')
+        ->assertDontSeeHtml('data-portfolio-stale-warning')
+        ->assertDontSee('Last known snapshot')
+        ->assertDontSee('may be outdated');
+
+    Livewire::test(CopyAmountSimulator::class, ['record' => $trader])
+        ->assertSee('Presets')
+        ->assertDontSeeHtml('data-simulator-stale-warning')
+        ->assertDontSee('Stale snapshot');
+});
+
+it('simulates and saves over the last known snapshot of a private portfolio, marked stale', function () {
+    $trader = Trader::factory()->create();
+    $snapshot = exposurePortfolioSnapshot($trader);
+    $trader->forceFill(['portfolio_visibility' => PerformanceVisibility::Private])->save();
+
+    Livewire::test(CopyAmountSimulator::class, ['record' => $trader])
+        ->assertOk()
+        ->assertSeeHtml('data-simulator-stale-warning')
+        ->assertSee('Simulating over the last known snapshot — may be outdated')
+        ->assertSee('Portfolio is now private — showing the last known snapshot from 2026-10-06 10:30 CEST; the data may be outdated.')
+        ->assertSee('Stale snapshot — last known, not current')
+        ->assertSee('Presets')
+        ->assertSee('Minimum copy amount per coverage target')
+        ->callAction('saveSimulation')
+        ->assertNotified('Simulation saved');
+
+    $simulation = CopySimulation::query()->sole();
+    expect($simulation->portfolio_snapshot_id)->toBe($snapshot->id)
+        ->and(app(SimulateCopyAmount::class)->reproduces($simulation))->toBeTrue();
 
     Http::assertNothingSent();
 });

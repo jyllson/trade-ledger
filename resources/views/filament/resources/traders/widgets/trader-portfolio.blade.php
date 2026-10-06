@@ -13,6 +13,17 @@
         @if (! $available)
             <p style="font-size: 0.875rem; opacity: 0.7;">{{ $emptyMessage }}</p>
         @else
+            @if ($staleWarning !== null)
+                <x-filament::callout
+                    color="warning"
+                    icon="heroicon-o-exclamation-triangle"
+                    heading="Last known snapshot — may be outdated"
+                    :description="$staleWarning"
+                    data-portfolio-stale-warning
+                    style="margin-bottom: 1rem;"
+                />
+            @endif
+
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 0.75rem; font-size: 0.875rem;">
                 <div><div style="{{ $muted }}">Snapshot captured</div><div>{{ $snapshot['captured_at'] }}</div></div>
                 <div><div style="{{ $muted }}">Last confirmed unchanged</div><div>{{ $snapshot['last_confirmed_at'] }}</div></div>

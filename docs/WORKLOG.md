@@ -1967,3 +1967,48 @@ Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
 
 Bez `.env`; bez novih paketa; bez brisanja podataka iz dev baze; bez
 commit-a.
+
+## 2026-10-06 — Milestone 4, Checkpoint F: zatvaranje (D-045, D-046)
+
+### Urađeno
+
+- **Zastareli snapshot (D-045, odluka vlasnika; zamenjuje D-043 tačku 1):**
+  `BuildTraderPortfolioReport` uvek vraća poslednji sačuvani snapshot;
+  `TraderPortfolioReport::isStale()`. Portfolio sekcija i simulator za
+  private/not found portfolio prikazuju poslednji poznati snapshot uz
+  Filament `callout` (warning) sa vremenom `last_confirmed_at` u
+  Europe/Malta; rezultat simulatora nosi badge „Stale snapshot“, a
+  obaveštenje o čuvanju to navodi. Bez snapshot-a — prazno stanje.
+- **Vreme (D-046):** `config('app.display_timezone')` = `Europe/Malta`,
+  `App\Filament\Support\DateTimeDisplay` (format `Y-m-d H:i T`) i
+  `configureFilament()` iz `AppServiceProvider` (FilamentTimezone +
+  podrazumevani date-time format za `Table`/`Schema`) — svi `dateTime()`
+  unosi/kolone u TraderResource i ImportRunResource bez izmena po polju;
+  widget-i koriste helper. `app.timezone` ostaje `UTC`.
+- Testovi: `TraderPortfolioViewTest` (private/not found + snapshot →
+  prikaz i upozorenje; bez snapshot-a → prazno stanje; javan → bez
+  upozorenja; simulacija i čuvanje nad zastarelim snapshot-om) i novi
+  `DisplayTimezoneTest` (leto/zima, oba DST prelaza, tabele i infolist-i).
+- Dokumentacija: README (status M3/M4, nove komande, portfolio/simulator
+  UI, rate limiting i timeout), `docs/REVIEW_STATUS.md` (M4 zapis),
+  `docs/DECISIONS.md` (D-043 tačka 1 superseded, D-045, D-046).
+
+### Vizuelni QA
+
+Headless Chrome (CDP, isti skript kao E, bez paketa) nad izolovanom
+sintetičkom SQLite bazom `/private/tmp/tl-qa-m4f/qa.sqlite` (env
+varijable procesa, `.env` nije čitan ni menjan; dev baza nije dirana).
+Light i dark, privatan portfolio: upozorenje vidljivo u oba moda, sve
+sekcije renderovane, vremena u CEST. Artefakti u `/private/tmp/tl-qa-m4f/`.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1820 total, 1816 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+  Frontend asseti nisu menjani.
+
+### Bezbednost
+
+Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno;
+bez commit-a.

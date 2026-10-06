@@ -13,12 +13,12 @@ use App\Analytics\Data\LeverageExposureResult;
 use App\Analytics\ValueObjects\Percentage;
 use App\Application\Traders\BuildTraderPortfolioReport;
 use App\Application\Traders\TraderPortfolioReport;
+use App\Filament\Support\DateTimeDisplay;
 use App\Filament\Support\NumberDisplay;
 use App\Filament\Support\PercentageDisplay;
 use App\Models\PerformanceVisibility;
 use App\Models\PortfolioPosition;
 use App\Models\Trader;
-use Carbon\CarbonInterface;
 use Filament\Widgets\Widget;
 
 /**
@@ -51,9 +51,10 @@ class TraderPortfolio extends Widget
 
         return [
             'available' => true,
+            'staleWarning' => self::staleWarning($report),
             'snapshot' => [
-                'captured_at' => self::time($snapshot->captured_at),
-                'last_confirmed_at' => self::time($snapshot->last_confirmed_at),
+                'captured_at' => DateTimeDisplay::format($snapshot->captured_at),
+                'last_confirmed_at' => DateTimeDisplay::format($snapshot->last_confirmed_at),
                 'position_count' => $snapshot->position_count,
                 'social_trades_count' => $snapshot->social_trades_count,
             ],
@@ -79,15 +80,32 @@ class TraderPortfolio extends Widget
 
     private static function emptyMessage(?TraderPortfolioReport $report): string
     {
-        $kept = $report !== null && $report->storedSnapshotCount > 0
-            ? sprintf(' %d older stored snapshot(s) are kept but not shown, because they no longer describe a visible portfolio.', $report->storedSnapshotCount)
-            : '';
-
         return match ($report?->visibility) {
-            PerformanceVisibility::Private => 'The last portfolio sync found this portfolio private (the trader opted out), so no portfolio is shown and the copy simulator is unavailable.'.$kept,
-            PerformanceVisibility::NotFound => 'The last portfolio sync did not find this trader on eToro, so no portfolio is shown and the copy simulator is unavailable.'.$kept,
+            PerformanceVisibility::Private => 'The last portfolio sync found this portfolio private (the trader opted out) and no earlier snapshot is stored, so no portfolio is shown and the copy simulator is unavailable.',
+            PerformanceVisibility::NotFound => 'The last portfolio sync did not find this trader on eToro and no earlier snapshot is stored, so no portfolio is shown and the copy simulator is unavailable.',
             default => 'No portfolio snapshot stored yet. Use “Sync portfolio”.',
         };
+    }
+
+    /**
+     * Prominent warning shown above a stale snapshot (D-045), shared with the
+     * copy simulator; null while the portfolio is visible.
+     */
+    public static function staleWarning(TraderPortfolioReport $report): ?string
+    {
+        if (! $report->isStale() || $report->snapshot === null) {
+            return null;
+        }
+
+        $reason = $report->visibility === PerformanceVisibility::NotFound
+            ? 'This trader was not found on eToro by the last portfolio sync'
+            : 'Portfolio is now private';
+
+        return sprintf(
+            '%s — showing the last known snapshot from %s; the data may be outdated.',
+            $reason,
+            DateTimeDisplay::format($report->snapshot->last_confirmed_at),
+        );
     }
 
     /**
@@ -133,7 +151,7 @@ class TraderPortfolio extends Widget
             },
             'weight' => PercentageDisplay::format(Percentage::fromPartsPerBillion($position->weight_ppb), 4),
             'leverage' => $position->leverage === null ? 'Unknown' : $position->leverage.'x',
-            'opened_at' => $position->opened_at === null ? '—' : self::time($position->opened_at),
+            'opened_at' => $position->opened_at === null ? '—' : DateTimeDisplay::format($position->opened_at),
         ];
     }
 
@@ -224,10 +242,5 @@ class TraderPortfolio extends Widget
             ConcentrationWarning::CashWeightUnknown => 'The snapshot does not report a cash weight, so cash and unaccounted weight are unknown.',
             ConcentrationWarning::NoInvestedWeight => 'The snapshot has no invested weight, so no concentration or leverage figure exists.',
         };
-    }
-
-    private static function time(CarbonInterface $time): string
-    {
-        return $time->copy()->setTimezone('Europe/Malta')->format('Y-m-d H:i T');
     }
 }

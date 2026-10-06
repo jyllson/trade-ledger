@@ -6,6 +6,7 @@ use App\Application\Traders\BuildTraderPerformanceReport;
 use App\Application\Traders\BuildTraderPortfolioReport;
 use App\Etoro\EtoroRequestThrottle;
 use App\Etoro\EtoroWriteGuard;
+use App\Filament\Support\DateTimeDisplay;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\Date;
@@ -34,6 +35,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureRateLimiting();
+        DateTimeDisplay::configureFilament();
 
         app(EtoroWriteGuard::class)->ensureReadOnly();
     }
