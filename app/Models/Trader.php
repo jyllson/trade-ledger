@@ -98,6 +98,14 @@ class Trader extends Model
     }
 
     /**
+     * @return HasMany<CopySimulation, $this>
+     */
+    public function copySimulations(): HasMany
+    {
+        return $this->hasMany(CopySimulation::class);
+    }
+
+    /**
      * The most recently captured portfolio snapshot.
      *
      * @return HasOne<PortfolioSnapshot, $this>

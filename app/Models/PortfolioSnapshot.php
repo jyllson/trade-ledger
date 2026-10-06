@@ -76,4 +76,12 @@ class PortfolioSnapshot extends Model
     {
         return $this->hasMany(PortfolioPosition::class)->orderBy('position_index');
     }
+
+    /**
+     * @return HasMany<CopySimulation, $this>
+     */
+    public function copySimulations(): HasMany
+    {
+        return $this->hasMany(CopySimulation::class);
+    }
 }

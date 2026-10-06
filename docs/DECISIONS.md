@@ -1783,3 +1783,105 @@ razrešen). Sektor (`stocks_industry_id`) se čuva, ali nema katalog (D-037).
    `captured_at`. **Bez nove tabele:** rezultat je jeftina, deterministička
    funkcija sačuvanog snapshot-a; keš/persistencija ima smisla tek ako
    Compare (M5) bude računao za mnogo tradera odjednom.
+
+## D-042: Copy simulator — sačuvane simulacije, metodologija i reproducibilnost
+
+**Datum:** 2026-10-06
+**Status:** usvojeno (Milestone 4, Checkpoint D; bez live poziva)
+
+**Kontekst:** PROJECT.md Flow D, §11 `copy_simulations`, §12 i §20 M4
+(objašnjenje svake preskočene pozicije, preseti $200/$500/$1,000, targeti
+90/95/99/100%, rezultat reproducibilan iz sačuvanog snapshot-a).
+`CopyCoverageCalculator`, `LivePortfolioCoverageAdapter`,
+`EvaluateTraderCopyCoverage`, `FindTraderMinimumCopyAmountForCoverage` i
+`etoro:copy-target` već računaju coverage nad LIVE portfolijom (D-019 do
+D-023); snapshot-i se čuvaju od D-038.
+
+**Odluka:**
+
+1. **Šema `copy_simulations` (odstupanja od §11):**
+   - Novac u **integer centima** (`*_cents`, unsigned BIGINT), ne DECIMAL:
+     isti oblik kao `Money` (§9 dozvoljava integer minor units), bez
+     konverzije na granici. Težine u **ppb** (signed BIGINT), kao D-038:
+     `eligible_weight_ppb`, `skipped_weight_ppb`, `cash_weight_ppb`
+     (nullable — nepoznat keš), `target_coverage_ppb` (nullable).
+   - **`analysis_profile_id` izostavljen**: tabela ne postoji, a kolona bez
+     FK-a bi bila nevezan broj bez značenja. Uvodi se migracijom (sa FK-om)
+     zajedno sa `analysis_profiles`.
+   - Dodat **`platform_minimum_copy_amount_cents`** (default 20_000): ulazi
+     u minimum za target (§12.2 korak 3), pa mora biti sačuvan da bi red
+     ostao reproducibilan i kad se podrazumevana vrednost promeni.
+   - `eligible_positions_count`/`skipped_positions_count`/težine/
+     `minimum_target_amount_cents` su sažetak `result`-a za upite.
+     `minimum_target_amount_cents` je *effective* minimum (sa platformskim
+     minimumom); null bez targeta ili bez pozitivne težine.
+   - FK-ovi `trader_id` i `portfolio_snapshot_id` sa `cascadeOnDelete`
+     (simulacija bez snapshot-a nije reproducibilna). Kratka imena indeksa
+     (`copy_sim_trader_calc_idx`, `copy_sim_snap_method_idx`), MySQL limit.
+2. **Adapter bez dupliranja:** `StoredPortfolioCoverageAdapter` vraća
+   sačuvani snapshot u domain `LivePortfolio` (redosled `position_index`,
+   tačne ppb težine, keš, broj socialTrades; TP/SL ostaju null — ne
+   vraćaju se iz decimal stringa u float) i predaje ga postojećem
+   `LivePortfolioCoverageAdapter`-u. Live i sačuvani put tako dele jedno
+   pravilo prevođenja. Test poredi sačuvani put sa živim use case-ovima
+   (`EvaluateTraderCopyCoverage`, `FindTraderMinimumCopyAmountForCoverage`)
+   nad istim payload-om (fixture i „irregular“ varijanta: keš, socialTrades,
+   duplikat id-ja, negativna i nulta težina) — rezultati su `toEqual`.
+3. **Slojevi:** `CopyCoverageCalculator` ostaje jedini vlasnik eligibility-ja,
+   razloga preskakanja, breakpoint-a i target minimuma (javni API
+   nepromenjen). Novi čisti `App\Analytics\Calculators\CopySimulationCalculator`
+   samo dodaje: pozicije u redosledu snapshot-a (spajanjem eligible/skipped
+   lista), procenjeni iznos floor(A × wᵢ) u centima (§12.1; floor je
+   konzistentan sa eligibility-jem jer je M ceo broj centi), coverage
+   relativno prema pozitivnoj težini (floor, kao `achievedRatio`, D-022) i
+   §12.5 podelu keš / `unknown_weight` = 1 − Σ pozicija − keš (null kad je
+   keš nepoznat). `App\Application\Traders\SimulateCopyAmount` upisuje red,
+   `BuildCopySimulationMatrix` vraća matricu (ništa ne upisuje); oba čitaju
+   samo sačuvani snapshot, nikad eToro API. Tekstovi objašnjenja su u
+   application sloju (engleski, kao UI).
+4. **Upozorenja simulatora** (`CopySimulationWarning`): calculator-ov
+   `observed_weight_not_whole` se NE prenosi kao upozorenje — pozicije
+   nikad nisu 100% kad postoji keš (§12.5). Umesto njega: `cash_weight_unknown`
+   i `unaccounted_weight` (|unknown| > 100_000 ppb = 0.01 p.p.; manje je
+   zaokruživanje izvora — live uzorak 99.999986, D-037; tačna vrednost se
+   uvek prikazuje). Ostala: `empty_snapshot`, `no_positive_weight`,
+   `duplicate_position_id`, `negative_weight_ignored`,
+   `unmodeled_portfolio_entries_present`, `copy_amount_below_platform_minimum`.
+   **`is_estimate`** (§12.2 korak 6) = duplikat, negativna težina,
+   nemodelovani unosi, nepoznat keš ili neobjašnjena težina. Prazan /
+   nulti snapshot je „kompletan ali nepokriv“ (D-022), a iznos ispod
+   platformskog minimuma je problem ulaza — ni jedno nije procena. Sirova
+   calculator upozorenja ostaju u `result.calculator_warnings`.
+5. **Razlozi preskakanja** (`skip_reason` = `PositionSkipReason`):
+   `below_minimum` (objašnjenje: iznos A, težina, procenjeni iznos, M i
+   iznos od kog se pozicija kopira), `zero_weight`, `negative_weight`.
+   Iznos ispod $200 nije razlog preskakanja pozicije, nego upozorenje na
+   nivou simulacije; eligibility se računa isto.
+6. **Preseti i targeti na jednom mestu:** `CopyAmountPreset` ($200/$500/
+   $1,000 u centima), `CoverageTargetPreset` (90/95/99/100% u ppb;
+   `isInformational()` samo za 100% — §12.3), `CopySimulationSettings`
+   (M = $1, platformski minimum $200, `METHODOLOGY_VERSION`). Target 100%
+   je tačno §12.3: max($200, ceil(M / najmanja pozitivna težina)) — računa
+   se uvek, i kad je ekonomski besmislen (test: težina 1 ppb → $1
+   milijarda), bez gornje granice. Bez pozitivne težine target nije
+   dostižan: svi iznosi null (N/A, `is_reachable = false`), nikad 0.
+7. **Reproducibilnost:** `result` je čista funkcija sadržaja snapshot-a,
+   ulaza i `METHODOLOGY_VERSION` (`copy-simulation-v1`) — bez vremena,
+   metapodataka instrumenata i zastarelosti (staleness računa UI iz
+   `captured_at`/`last_confirmed_at`), samo int/string/bool/null, bez
+   float-a. `recalculate()` vraća dokument iznova; `reproduces()` ga
+   poredi striktno po vrednostima, a ključeve objekata nezavisno od
+   redosleda, jer MySQL JSON tip preuređuje ključeve pri upisu (provereno
+   na `trade_ledger` u transakciji koja je vraćena; liste zadržavaju
+   redosled). Promena bilo čega što oblikuje `result` (kalkulatori,
+   adapter, oblik dokumenta, tekstovi) = nova verzija; stari redovi
+   ostaju, a `recalculate()` za drugu verziju baca
+   `UnsupportedCopySimulationMethodology`. Svaki poziv `handle()` dodaje
+   novi red (bez deduplikacije); matrica za UI se ne čuva.
+8. **CLI:** `php artisan etoro:simulate-copy {username} {amount}
+   {--target=} {--minimum-position=1} {--snapshot=}` — iznosi u USD sa
+   najviše 2 decimale, tačno parsirani u cente (bez float-a); `--target` po
+   ugovoru D-023 (procentni poeni). Radi nad poslednjim ili zadatim
+   snapshot-om tog tradera, bez HTTP-a (radi i sa `ETORO_ENABLED=false`),
+   upisuje simulaciju i ispisuje preskočene pozicije sa objašnjenjem.
+   `etoro:copy-target` / `etoro:copy-coverage` nepromenjeni.

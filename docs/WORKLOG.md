@@ -1838,3 +1838,40 @@ Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
 ### Bezbednost
 
 Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
+
+## 2026-10-06 — Milestone 4, Checkpoint D: copy simulator (D-042)
+
+### Urađeno
+
+- Migracija `copy_simulations` (novac u centima, težine u ppb, bez
+  `analysis_profile_id`, sa `platform_minimum_copy_amount_cents`), model
+  `CopySimulation` + factory, relacije na `Trader` i `PortfolioSnapshot`.
+  `php artisan migrate` izvršen na `trade_ledger`.
+- `App\Application\Traders\StoredPortfolioCoverageAdapter`: sačuvani
+  snapshot → `LivePortfolio` → postojeći `LivePortfolioCoverageAdapter`.
+- `App\Analytics\Calculators\CopySimulationCalculator` (+
+  `CopySimulationResult`, `SimulatedPosition`, `CopySimulationWarning`)
+  nad nepromenjenim `CopyCoverageCalculator`-om.
+- `SimulateCopyAmount` (upis, `recalculate()`, `reproduces()`),
+  `BuildCopySimulationMatrix` (+ `CopySimulationMatrix`),
+  `CopyAmountPreset`, `CoverageTargetPreset`, `CopySimulationSettings`,
+  `UnsupportedCopySimulationMethodology`.
+- `php artisan etoro:simulate-copy` (offline, sačuvani snapshot).
+- Testovi sa ručno izračunatim fixture-om (`CopySimulationFixtures.php`):
+  svi razlozi preskakanja sa objašnjenjem, preseti, targeti 90/95/99/100%
+  (i 1 ppb pozicija, i nedostižan target), keš i neobjašnjena težina
+  (granica tolerancije), nepoznat keš, prazan snapshot, ekvivalencija sa
+  live use case-ovima, bit-identično ponovno računanje, druga verzija
+  metodologije, CLI.
+- Ručna provera na dev MySQL-u (transakcija vraćena, 0 trajnih upisa):
+  JSON kolona preuređuje ključeve; `reproduces()` = true.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1740 total, 1736 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
