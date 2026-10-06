@@ -1694,3 +1694,92 @@ markira kao failed nego ponavlja posle `retry_after`.
 `running` posle timeout-a, failed-a ili ponovljenog pokušaja. Preostalo:
 run ubijenog pokušaja koji se nikad više ne pokrene i čiji `failed()`
 nije pozvan (npr. job ručno obrisan iz `jobs` tabele) ostaje `running`.
+
+## D-041: Koncentracija i leverage izloženost — osnovica težina, sektor i nepoznati podaci
+
+**Datum:** 2026-10-06
+**Status:** usvojeno (Milestone 4, Checkpoint C; bez live poziva)
+
+**Kontekst:** PROJECT.md §13.6 (HHI, effective positions, largest, top 3
+po instrumentu, asset class-u i sektoru „kad postoje podaci“) i §13.7
+(weighted leverage, leveraged weight, max leverage, broj leveraged
+pozicija). Sačuvani snapshot (D-038) nosi težine u ppb kao udeo CELOG
+portfolija (keš uključen), `cash_weight_ppb` (null = nepoznato), leverage
+po poziciji (nullable) i `instruments.asset_class` (null dok tip nije
+razrešen). Sektor (`stocks_industry_id`) se čuva, ali nema katalog (D-037).
+
+**Odluka:**
+
+1. **Osnovica težina = invested-only** (`ExposureWeightBasis::InvestedOnly`):
+   wᵢ = gᵢ / W, gde je W zbir upotrebljivih težina pozicija. Koncentracija
+   opisuje raspodelu uloženog kapitala; keš nije pozicija i ne „razblažuje“
+   HHI (portfolio 50% keš + 1 pozicija ima HHI = 1, ne 0.25). Ovo je
+   eksplicitni „invested-only“ prikaz iz §12.5, pa rezultat uvek nosi i
+   osnovicu: `investedWeight` (Σ pozicija, osnovica celog portfolija),
+   `cashWeight` (null ⇒ nepoznato) i `unaccountedWeight` = 1 − invested −
+   cash (§12.5 `unknown_weight`; null kad je keš nepoznat, može biti
+   negativan). Leverage koristi istu osnovicu.
+2. **Formule tačno po §13.6:** HHI = Σwᵢ², effective = 1/HHI, largest =
+   max wᵢ, top 3 = zbir tri najveća wᵢ (sa < 3 grupe — zbir svih). Po
+   instrumentu se pozicije istog `external_instrument_id` sabiraju pre
+   kvadriranja. Računa se tačno na celim ppb brojevima (BCMath):
+   HHI = Σgᵢ² / W², effective = W² / Σgᵢ²; zaokruživanje half-up samo na
+   kraju (težine u ppb kao `Percentage`, effective/weighted leverage kao
+   decimal string sa 9 decimala — broj, ne udeo). Grupe su sortirane
+   opadajuće po težini, izjednačenja po ključu (nepoznato poslednje).
+3. **Nepoznato nikad nije 0 i nikad ne nestaje:**
+   - pozicija bez težine (null) ili sa negativnom težinom ne ulazi ni u
+     jednu ponderisanu metriku, ali se broji (`missingWeightCount`,
+     `negativeWeightCount`) i diže upozorenje;
+   - upotrebljiva težina bez asset class-a ide u eksplicitnu „unknown“
+     grupu (`key = null`), koja ulazi u metrike kao JEDNA grupa (stvarna
+     uložena težina); dimenzija je tada `partial` i nosi
+     `classifiedWeight`/`unclassifiedWeight` — HHI je aproksimacija i UI
+     mora da ga prikaže uz klasifikovani udeo. Kad ništa nije klasifikovano
+     → `unavailable` (`no_data`), grupe i udeli i dalje vidljivi;
+   - prazan portfolio i portfolio samo sa kešom → sve dimenzije
+     `unavailable` (`no_invested_weight`), bez metrika.
+4. **Sektor se NE računa** (`unavailable`, `classification_not_supported`):
+   `stocksIndustryID` nema katalog (D-037), nije potvrđeno da je to sektor
+   (a ne finija industrija), a ne-akcijski instrumenti ga nemaju, pa se ne
+   zna da li je null „nepoznato“ ili „nije primenljivo“. HHI po ID-ju bi
+   bio broj bez potvrđenog značenja. Kalkulator je generičan
+   (`PortfolioHoldings::$sectorClassificationAvailable`, unknown grupa i
+   upozorenje `sector_unknown` rade isto kao za asset class), pa se sektor
+   uključuje samo promenom adaptera kad katalog i semantika budu potvrđeni.
+5. **Leverage (§13.7)** nikad ne pretpostavlja 1x: nedostajući ili
+   nevalidan (< 1) leverage ide u `unknownLeverageWeight`, status
+   `partial`. `weightedLeverage` = tačno §13.7 Σ(wᵢ × Lᵢ) na invested-only
+   osnovici i postoji samo kad je `unknownLeverageWeight` = 0; čim
+   ponderisana pozicija nema (validan) leverage, `weightedLeverage = null`
+   (nije utvrdiv — ni pretpostavka 1x, ni renormalizacija na poznati deo,
+   jer bi to tiho promenilo osnovicu). Umesto toga se uvek (osim
+   `no_invested_weight`) izlaže `knownLeverageContribution` = Σ(wᵢ × Lᵢ)
+   samo nad poznatim, wᵢ na CELOJ invested osnovici, i `knownLeverageWeight`
+   = Σwᵢ poznatih (primer 50%×1, 30% nepoznato, 20%×3 → weighted = null,
+   doprinos = 1.1, poznata težina = 70%). Donja granica (nepoznato kao 1x)
+   se ne izlaže — UI je može izvesti kao doprinos + unknown weight, uz
+   eksplicitnu oznaku granice. `leveragedWeight` (L > 1) +
+   `unleveragedWeight` (L = 1) + `unknownLeverageWeight` = 1 na
+   invested-only osnovici. `maxLeverage` i brojači (leveraged/known/
+   missing/invalid) koriste sve pozicije, i one bez težine.
+   **Pozicija bez upotrebljive težine** (null ili negativna) je po
+   definiciji van invested osnovice (tačka 1), isto kao u koncentraciji:
+   leverage rezultat je broji (`missingWeightCount`, `negativeWeightCount`,
+   isto značenje kao u `ConcentrationResult`) i status je `partial`, jer
+   ponderisana izloženost te pozicije nije poznata. `weightedLeverage`
+   pritom OSTAJE vrednost nad poznatom invested osnovicom (kao HHI u
+   koncentraciji, koji se računa uprkos `missingWeightCount` > 0): za
+   razliku od nepoznatog leverage-a, koji je deo osnovice W pa Σ(wᵢ × Lᵢ)
+   nije utvrdiv, pozicija bez težine menja samu osnovicu, ne utvrdivost
+   zbira nad njom. Primer: 60% × 1x + pozicija nepoznate težine × 5x +
+   negativna težina × 2x → weighted = 1, `partial`, missing/negative = 1/1.
+6. **Slojevi:** čisti `ConcentrationCalculator` (`concentration-v1`) i
+   `LeverageExposureCalculator` (`leverage-v1`) nad
+   `PortfolioHoldings`/`PortfolioHolding` (App\Analytics, bez Laravel-a);
+   tanak `App\Application\Traders\BuildPortfolioExposureReport` čita samo
+   sačuvani snapshot + pozicije + instrumente (nikad eToro API) i vraća
+   `PortfolioExposureReport`; `latestForTrader()` uzima poslednji
+   `captured_at`. **Bez nove tabele:** rezultat je jeftina, deterministička
+   funkcija sačuvanog snapshot-a; keš/persistencija ima smisla tek ako
+   Compare (M5) bude računao za mnogo tradera odjednom.

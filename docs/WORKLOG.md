@@ -1793,3 +1793,48 @@ Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
 ### Bezbednost
 
 Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
+
+## 2026-10-06 — Milestone 4, Checkpoint C: koncentracija i leverage izloženost (D-041)
+
+### Urađeno
+
+- `App\Analytics\Calculators\ConcentrationCalculator` (§13.6): HHI,
+  effective positions, largest, top 3 po instrumentu (sabiranje istog
+  instrumenta), asset class-u i sektoru (sektor `unavailable` dok izvor ne
+  podržava klasifikaciju); eksplicitna „unknown“ grupa, statusi
+  complete/partial/unavailable, metapodaci kompletnosti (invested/cash/
+  unaccounted weight, brojači, upozorenja).
+- `App\Analytics\Calculators\LeverageExposureCalculator` (§13.7):
+  weighted leverage tačno po §13.7 (null čim ponderisana pozicija nema
+  leverage — bez renormalizacije na poznati deo), `knownLeverageContribution`
+  i `knownLeverageWeight` na invested osnovici, leveraged/1x/unknown weight,
+  max leverage, brojači; nikad pretpostavka 1x (ispravka nalaza review-a).
+- Ispravka nalaza review-a (leverage completeness): pozicija bez
+  upotrebljive težine (null/negativna) više ne ostavlja leverage rezultat
+  tiho `Complete` — `LeverageExposureResult` nosi `missingWeightCount` i
+  `negativeWeightCount` (kao `ConcentrationResult`), status je `partial`,
+  a `weightedLeverage` ostaje vrednost nad poznatom invested osnovicom
+  (D-041 t. 5); edge-case test 60%×1x + nepoznata težina×5x.
+- Novi DTO-i/enumi u `App\Analytics\Data` (`PortfolioHolding(s)`,
+  `ConcentrationResult/Dimension/Group/Warning`, `LeverageExposureResult`,
+  `ExposureStatus`, `ExposureUnavailableReason`, `ExposureWeightBasis`) i
+  `App\Analytics\Support\WeightMath` (tačni BCMath odnosi).
+- `App\Application\Traders\BuildPortfolioExposureReport` (+
+  `PortfolioExposureReport`): adapter iz sačuvanog `PortfolioSnapshot`,
+  bez HTTP-a i bez nove tabele.
+- Testovi sa ručno izračunatim fixture-ima (račun u komentarima): prazan
+  portfolio, samo keš, jedna pozicija (HHI = 1), < 3 grupe za top 3,
+  duplikat instrumenta, nepoznat asset class, nedostajuća/negativna
+  težina, nedostajući/nevalidan leverage, sektor; feature test adaptera.
+- Odluke: D-041 (invested-only osnovica, sektor se ne računa, tretman
+  nepoznatog).
+
+### Verifikacija
+
+- `php artisan test --compact`: 1678 total, 1674 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez live eToro poziva; bez `.env`; bez novih paketa; bez commit-a.
