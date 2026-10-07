@@ -1,12 +1,89 @@
 # REVIEW_STATUS — TradeLedger
 
-**Trenutni implementation stream:** Milestone 4 — implementacija završena
-na grani `codex/milestone-4-portfolio-simulator`; čeka PR/merge u `main`.
-**Poslednje ažuriranje:** 2026-10-06 (Milestone 4, Checkpoint F — zatvaranje)
+**Trenutni implementation stream:** Milestone 5 — implementacija završena
+na grani `codex/milestone-5-trader-comparison`; čeka PR/merge u `main`.
+**Poslednje ažuriranje:** 2026-10-07 (Milestone 5, Checkpoint D — zatvaranje)
 
-## ✅ Product Milestone 4 — COMPLETE na grani (portfolio i copy simulator)
+## ✅ Product Milestone 5 — COMPLETE na grani (poređenje tradera)
 
-Grana `codex/milestone-4-portfolio-simulator`, PR još nije otvoren/merge-ovan.
+Grana `codex/milestone-5-trader-comparison`, PR još nije otvoren/merge-ovan.
+
+| Checkpoint | Commit | Sadržaj | Odluke |
+|---|---|---|---|
+| A | `5264be9` | read model poređenja (`BuildTraderComparison`): §14 dimenzije sa statusom metrike, periodi posmatranja, completeness, zastarelost, neuspeli sync-ovi | D-047 |
+| B | `0ed565d` | `analysis_profiles` (default iz migracije), transparentni filteri pass/fail/unknown, netežinski sažetak, Filament Analysis profiles | D-048 |
+| C | `df6d388` | stranica `/admin/compare-traders`, bulk akcija „Compare“, upozorenja, equity grafici, CSV export | D-049 |
+| D | (ovaj, necommit-ovan) | dokumentacija zatvaranja (README, REVIEW_STATUS, WORKLOG) | — |
+
+**`PROJECT.md` §20 M5 acceptance:**
+
+1. *Compare 2–10 traders* — `BuildTraderComparison` odbija <2, >10,
+   duplikate i nepostojeće ID-jeve sa razlogom
+   (`BuildTraderComparisonTest` „rejects fewer than two, more than ten,
+   duplicate, and unknown traders“); UI: `CompareTradersTest` („opens the
+   comparison from the Traders bulk action only for 2–10 traders“,
+   „rejects an invalid URL selection…“, „disables adding a trader once 10
+   are selected“).
+2. *No hidden overall score* — nema ukupnog/kombinovanog skora u read
+   modelu ni u filterima (testovi refleksijom: `BuildTraderComparisonTest`
+   „has no overall or combined score anywhere in the read model“,
+   `EvaluateProfileFiltersTest` „has no score anywhere in the filter
+   result“, „derives the verdict by fixed precedence fail > unknown >
+   pass, without weights“); UI: `CompareTradersTest` („never shows an
+   overall score, rank or winner“, „…the summary as not a score“).
+3. *Differing observation periods clearly shown* — read model daje period
+   svakog tradera i zajednički period, sa zastavicom kad se razlikuju
+   (`BuildTraderComparisonTest` „shows the common period and flags
+   differing observation periods“, „does not flag identical observation
+   periods“); UI: istaknuto upozorenje sa periodom svakog tradera
+   (`CompareTradersTest` „warns prominently when observation periods
+   differ…“), periodi i u CSV-u („writes machine-readable CSV values…
+   and the period rows“).
+
+Deliverables §20 (comparison page, default analysis profile, transparent
+filters, data-quality warnings, CSV export) pokriveni su u checkpoint-ima
+B–C; `CompareTradersTest` „shows data-quality warnings…“ i „exports the
+comparison as CSV“.
+
+**Vizuelni QA (Checkpoint C):** headless Chrome nad izolovanom
+sintetičkom SQLite bazom; screenshot-ovi u `/private/tmp/tl-qa-m5c/` —
+light, dark, dark sa drugim profilom, prazno stanje, nevalidan URL;
+različiti periodi, privatan trader sa zastarelim snapshot-om i failed
+run-ovima, trader bez podataka.
+
+**Review runde (ukratko):**
+
+- A: N+1 uklonjen (43 upita umesto 101 za 10 tradera); completeness samo
+  nad prikupljivim proverama (nepodržan izvor ne obara skor); null
+  observation periodi (trader bez podataka); testovi UTC granice.
+- B: zaštita od brisanja default profila pod lock-om; `NoPositiveWeight`
+  kod procene (nepotpun snapshot) → unknown, ne fail; default profil
+  kreira migracija umesto upisa pri GET-u.
+- C: bez nalaza.
+
+**Live provera 2026-10-07** (dev baza `trade_ledger`, read-only GET):
+sync performansi za 3 tradera (6 poziva, zabeleženo u privatnom
+ledger-u); poređenje ta 3 tradera radi bez grešaka — trader sa
+portfolijem: 43/44 metrika dostupno; traderi bez portfolija:
+copyability i risk koncentracija eksplicitno `unavailable`. U
+dokumentaciji nema username-ova ni vrednosti.
+
+**Checkpoint D verifikacija:** samo dokumentacija; `git diff --check`
+čist; `vendor/bin/pint --test` passed; `php artisan test --compact`
+1970 total, 1966 passed, 4 skipped, 1 poznato nepovezano upozorenje.
+
+**Šta sledi:** commit Checkpoint-a D, PR i merge M5 u `main`; zatim
+Milestone 6 (praćenje sopstvenog naloga) po odluci vlasnika.
+
+---
+
+## Istorija: Milestone 4 zapis
+
+## ✅ Product Milestone 4 — COMPLETE (portfolio i copy simulator)
+
+- **PR #10** (`7d020a5`, „feat: complete Milestone 4 portfolio and copy
+  simulator“) — merge-ovan u `main`. Zapis ispod je stanje pri zatvaranju
+  grane `codex/milestone-4-portfolio-simulator`.
 
 | Checkpoint | Commit | Sadržaj | Odluke |
 |---|---|---|---|

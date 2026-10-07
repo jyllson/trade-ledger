@@ -2205,3 +2205,37 @@ copyability ćeliji (sada samo tooltip + tabela perioda). Artefakti u
 
 Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno;
 bez commit-a.
+
+## 2026-10-07 — Milestone 5, Checkpoint D: zatvaranje (dokumentacija)
+
+### Urađeno
+
+- `README.md`: Status (M4 merge-ovan kroz PR #10; M5 complete na grani
+  `codex/milestone-5-trader-comparison`; sledi M6), nova UI mesta
+  `/admin/compare-traders` (bulk „Compare“, URL izbor, upozorenja, CSV
+  export, bez skora) i `/admin/analysis-profiles` (filteri pass/fail/
+  unknown, netežinski sažetak, default profil).
+- `docs/REVIEW_STATUS.md`: novi vrh — M5 zapis (checkpoint-i A `5264be9`,
+  B `0ed565d`, C `df6d388`, D), §20 M5 acceptance sa dokazima (testovi +
+  vizuelni QA `/private/tmp/tl-qa-m5c/`), review runde, live provera;
+  M4 zapis premešten u istoriju uz PR #10.
+
+### Live provera (pre ovog checkpoint-a, 2026-10-07)
+
+Sync performansi za 3 tradera (6 read-only GET poziva, zabeleženo u
+privatnom ledger-u); poređenje 3 tradera bez grešaka — trader sa
+portfolijem 43/44 metrika dostupno, traderi bez portfolija sa
+copyability/risk koncentracijom eksplicitno `unavailable`. Bez
+username-ova i vrednosti u dokumentaciji.
+
+### Verifikacija
+
+- `git diff --check`: čist.
+- `vendor/bin/pint --test`: passed.
+- `php artisan test --compact`: 1970 total, 1966 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+
+### Bezbednost
+
+Samo dokumentacija; bez izmena koda; bez `.env`; bez novih paketa; bez
+live eToro poziva; bez commit-a.
