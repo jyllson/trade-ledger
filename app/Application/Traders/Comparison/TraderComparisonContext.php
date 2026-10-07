@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Application\Traders\Comparison;
 
+use App\Analytics\Data\CopySimulationResult;
+use App\Application\AnalysisProfiles\AnalysisProfileCriteria;
 use App\Application\Traders\CopySimulationMatrix;
 use App\Application\Traders\TraderPerformanceSeriesReport;
 use App\Application\Traders\TraderPortfolioReport;
@@ -22,6 +24,7 @@ final readonly class TraderComparisonContext
     /**
      * @param  list<ImportRun>  $importRuns  performance/portfolio runs in the failed-run window
      * @param  ObservationPeriod  $noData  the explicit empty period at the comparison instant
+     * @param  CopySimulationResult|null  $budgetSimulation  the profile budget and target over the latest snapshot; null without a snapshot or out of range
      */
     public function __construct(
         public Trader $trader,
@@ -35,5 +38,7 @@ final readonly class TraderComparisonContext
         public array $importRuns,
         public ObservationPeriod $noData,
         public ?ObservationPeriod $snapshotObservation,
+        public AnalysisProfileCriteria $profile,
+        public ?CopySimulationResult $budgetSimulation,
     ) {}
 }

@@ -10,6 +10,7 @@ use App\Analytics\Data\CopySimulationWarning;
 use App\Analytics\Data\CoverageTargetResult;
 use App\Analytics\Exceptions\CoverageCalculationException;
 use App\Analytics\ValueObjects\Money;
+use App\Analytics\ValueObjects\Percentage;
 use App\Models\PortfolioPosition;
 use App\Models\PortfolioSnapshot;
 use Closure;
@@ -76,6 +77,34 @@ final class BuildCopySimulationMatrix
             )),
             isEstimate: $first->isEstimate ?? false,
         );
+    }
+
+    /**
+     * One arbitrary copy amount with one coverage target (e.g. an analysis
+     * profile's budget and target, D-048) over the same stored snapshot,
+     * through the same adapter and calculator as the presets — the result
+     * carries the minimum for the target in `target`. Persists nothing;
+     * null when a figure does not fit the representable range (D-043).
+     *
+     * @param  list<PortfolioPosition>|null  $positions  the snapshot's positions when the caller already loaded them
+     */
+    public function simulateAmount(
+        PortfolioSnapshot $snapshot,
+        Money $copyAmount,
+        Percentage $targetCoverage,
+        ?Money $minimumPositionAmount = null,
+        ?array $positions = null,
+    ): ?CopySimulationResult {
+        $minimumPositionAmount ??= CopySimulationSettings::defaultMinimumPositionAmount();
+        $platformMinimumCopyAmount = CopySimulationSettings::platformMinimumCopyAmount();
+        $portfolio = $this->adapter->toLivePortfolio($snapshot, $positions);
+
+        return self::withinRange(fn (): CopySimulationResult => $this->calculator->simulate(
+            $this->adapter->toCopyCoverageRequest($portfolio, $copyAmount, $minimumPositionAmount),
+            $portfolio->cashWeight,
+            $platformMinimumCopyAmount,
+            $targetCoverage,
+        ));
     }
 
     /**

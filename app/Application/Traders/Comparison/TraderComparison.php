@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace App\Application\Traders\Comparison;
 
+use App\Application\AnalysisProfiles\AnalysisProfileCriteria;
 use DateTimeImmutable;
 use OutOfBoundsException;
 
 /**
  * Read model of the trader comparison (PROJECT.md Flow E, §14, §20 M5;
  * docs/DECISIONS.md D-047). Independent dimensions per trader, never an
- * overall score. Built from stored rows only; not persisted.
+ * overall score. Built from stored rows only; not persisted. `profile` is
+ * the analysis profile whose budget/target metrics and filters the entries
+ * carry (D-048).
  */
 final readonly class TraderComparison
 {
@@ -24,6 +27,7 @@ final readonly class TraderComparison
         public int $failedRunWindowDays,
         public array $entries,
         public ComparisonPeriods $periods,
+        public AnalysisProfileCriteria $profile,
     ) {}
 
     public function entry(int $traderId): TraderComparisonEntry

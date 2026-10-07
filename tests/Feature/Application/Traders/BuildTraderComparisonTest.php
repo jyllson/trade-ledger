@@ -3,19 +3,25 @@
 use App\Analytics\Data\ReturnPeriodGranularity;
 use App\Analytics\ValueObjects\Money;
 use App\Analytics\ValueObjects\Percentage;
+use App\Application\AnalysisProfiles\AnalysisProfileCriteria;
 use App\Application\Traders\Comparison\BuildTraderComparison;
 use App\Application\Traders\Comparison\ComparisonDimension;
 use App\Application\Traders\Comparison\ComparisonMetric;
 use App\Application\Traders\Comparison\ComparisonMetricKey;
+use App\Application\Traders\Comparison\CriterionOutcome;
+use App\Application\Traders\Comparison\CriterionUnknownReason;
 use App\Application\Traders\Comparison\MetricStatus;
 use App\Application\Traders\Comparison\MetricUnavailableReason;
 use App\Application\Traders\Comparison\MetricWarning;
 use App\Application\Traders\Comparison\ObservationBasis;
 use App\Application\Traders\Comparison\ObservationPeriod;
+use App\Application\Traders\Comparison\ProfileCriterion;
+use App\Application\Traders\Comparison\ProfileFilterVerdict;
 use App\Application\Traders\Comparison\TraderComparison;
 use App\Application\Traders\Comparison\TraderComparisonEntry;
 use App\Application\Traders\Comparison\TraderComparisonRejected;
 use App\Application\Traders\Comparison\TraderComparisonRejectionReason;
+use App\Models\AnalysisProfile;
 use App\Models\ImportRun;
 use App\Models\ImportRunStatus;
 use App\Models\Instrument;
@@ -133,7 +139,7 @@ it('compares two traders with every §14 metric as an independent value', functi
     $comparison = app(BuildTraderComparison::class)->handle([$a->id, $b->id]);
     $alpha = $comparison->entry($a->id);
 
-    expect($comparison->methodologyVersion)->toBe('comparison-v1')
+    expect($comparison->methodologyVersion)->toBe('comparison-v2')
         ->and($comparison->staleAfterHours)->toBe(48)
         ->and($comparison->failedRunWindowDays)->toBe(7)
         ->and(array_map(fn (TraderComparisonEntry $entry): string => $entry->username, $comparison->entries))->toBe(['alpha', 'bravo'])
@@ -284,7 +290,8 @@ it('marks unavailable metrics with a reason and the history they would need — 
         expect($bravo->metric($key)->unavailableReason)->toBe(MetricUnavailableReason::NoStoredSnapshot);
     }
 
-    expect($bravo->dimension(ComparisonDimension::Copyability))->toHaveCount(13)
+    // 13 preset/target figures + 4 at the profile budget/target (D-048)
+    expect($bravo->dimension(ComparisonDimension::Copyability))->toHaveCount(17)
         ->and($bravo->metric(ComparisonMetricKey::PortfolioLastSuccessfulSync)->unavailableReason)->toBe(MetricUnavailableReason::NeverSynced)
         ->and($bravo->metric(ComparisonMetricKey::PortfolioVisibility)->unavailableReason)->toBe(MetricUnavailableReason::NeverSynced)
         ->and($bravo->metric(ComparisonMetricKey::StaleDataWarning)->value)->toBeTrue()
@@ -616,14 +623,16 @@ it('reads the data of ten traders in a bounded number of queries', function () {
     $queries = array_column(DB::getQueryLog(), 'query');
     DB::disableQueryLog();
 
-    // 1 traders + 1 performance points (all traders, both granularities)
-    // + 1 import runs (all traders) + 10 × 4 (snapshot count, latest
-    // snapshot, its positions ONCE, their instruments) = 43. Before D-047
+    // 1 traders + 1 default analysis profile (D-048) + 1 performance points
+    // (all traders, both granularities) + 1 import runs (all traders)
+    // + 10 × 4 (snapshot count, latest snapshot, its positions ONCE, their
+    // instruments) = 44 — the profile budget simulation reuses the loaded
+    // positions. Before D-047
     // point 9 it was 101: per trader 2 point queries, 1 import-run query
     // and the positions read three times (+ instruments twice).
     $positionQueries = array_filter($queries, fn (string $sql): bool => str_contains($sql, 'from "portfolio_positions"'));
 
-    expect($queries)->toHaveCount(43)
+    expect($queries)->toHaveCount(44)
         ->and($positionQueries)->toHaveCount(10)
         ->and(array_filter($queries, fn (string $sql): bool => str_contains($sql, 'from "performance_points"')))->toHaveCount(1)
         ->and(array_filter($queries, fn (string $sql): bool => str_contains($sql, 'from "import_runs"')))->toHaveCount(1);
@@ -722,3 +731,134 @@ it('is not affected by the Europe/Malta display timezone (D-046)', function () {
 
     expect($malta->periods)->toEqual($utc->periods);
 });
+
+// --- analysis profile (D-048) ---------------------------------------------
+
+it('uses the built-in default profile when none is stored — the budget figures equal the $500 / 95% ones', function () {
+    withoutStoredAnalysisProfiles();
+    $a = comparisonTraderA();
+    $b = comparisonTraderB();
+
+    $comparison = app(BuildTraderComparison::class)->handle([$a->id, $b->id]);
+    $alpha = $comparison->entry($a->id);
+
+    expect($comparison->profile->isBuiltIn())->toBeTrue()
+        ->and($comparison->profile->budget)->toEqual(Money::fromCents(50_000))
+        ->and(AnalysisProfile::query()->count())->toBe(0)
+        ->and($alpha->metric(ComparisonMetricKey::CoverageAtProfileBudget)->value)->toEqual($alpha->metric(ComparisonMetricKey::CoverageAt500)->value)
+        ->and($alpha->metric(ComparisonMetricKey::SkippedCountAtProfileBudget)->value)->toBe($alpha->metric(ComparisonMetricKey::SkippedCountAt500)->value)
+        ->and($alpha->metric(ComparisonMetricKey::SkippedWeightAtProfileBudget)->value)->toEqual($alpha->metric(ComparisonMetricKey::SkippedWeightAt500)->value)
+        ->and($alpha->metric(ComparisonMetricKey::MinimumForProfileTarget)->value)->toEqual($alpha->metric(ComparisonMetricKey::MinimumFor95)->value)
+        ->and($alpha->metric(ComparisonMetricKey::MinimumForProfileTarget)->details['target_coverage'])->toEqual(Percentage::fromPartsPerBillion(950_000_000))
+        ->and($alpha->profileFilters?->result(ProfileCriterion::TargetCoverageAtBudget)->outcome)->toBe(CriterionOutcome::Pass)
+        // only the target is applied by default; B has no snapshot
+        ->and($alpha->profileFilters?->verdict)->toBe(ProfileFilterVerdict::AllAppliedPassed)
+        ->and($comparison->entry($b->id)->profileFilters?->verdict)->toBe(ProfileFilterVerdict::AtLeastOneUnknown);
+});
+
+it('uses the stored default profile when no profile is given', function () {
+    withoutStoredAnalysisProfiles();
+    $a = comparisonTraderA();
+    $b = comparisonTraderB();
+    $stored = AnalysisProfile::factory()->asDefault()->create(['budget_cents' => 100_000, 'minimum_history_months' => 24]);
+
+    $comparison = app(BuildTraderComparison::class)->handle([$a->id, $b->id]);
+
+    expect($comparison->profile->profileId)->toBe($stored->id)
+        ->and($comparison->entry($a->id)->profileFilters?->profileId)->toBe($stored->id)
+        ->and($comparison->entry($a->id)->metric(ComparisonMetricKey::CoverageAtProfileBudget)->value)
+        ->toEqual($comparison->entry($a->id)->metric(ComparisonMetricKey::CoverageAt1000)->value)
+        ->and($comparison->entry($b->id)->profileFilters?->result(ProfileCriterion::MinimumHistoryMonths)->outcome)->toBe(CriterionOutcome::Fail);
+});
+
+it('simulates a non-preset budget and target through the simulator and evaluates every criterion per trader', function () {
+    $a = comparisonTraderA();
+    $b = comparisonTraderB();
+    $profile = new AnalysisProfileCriteria(
+        profileId: null,
+        name: 'Custom',
+        budget: Money::fromCents(30_000),
+        targetCoverage: Percentage::fromPartsPerBillion(900_000_000),
+        maximumDrawdown: Percentage::fromPartsPerBillion(250_000_000),
+        minimumHistoryMonths: 24,
+    );
+
+    $comparison = app(BuildTraderComparison::class)->handle([$a->id, $b->id], profile: $profile);
+    $alpha = $comparison->entry($a->id);
+    $bravo = $comparison->entry($b->id);
+
+    // $300 copies every position with a breakpoint ≤ $300 (pos-a … pos-g):
+    // covered 988_500_000 of the positive 992_500_000 → floor = 995_969_773;
+    // skipped pos-h, pos-i (below minimum) and pos-z (zero weight).
+    $coverage = $alpha->metric(ComparisonMetricKey::CoverageAtProfileBudget);
+    expect($comparison->profile)->toBe($profile)
+        ->and(ppbOf($coverage))->toBe(995_969_773)
+        ->and($coverage->details['copy_amount'])->toEqual(Money::fromCents(30_000))
+        ->and($alpha->metric(ComparisonMetricKey::SkippedCountAtProfileBudget)->value)->toBe(3)
+        ->and(ppbOf($alpha->metric(ComparisonMetricKey::SkippedWeightAtProfileBudget)))->toBe(4_000_000)
+        // 90%: pos-a + pos-b + pos-c = 90% ≥ 0.9 × 99.25% at $10 → platform minimum $200
+        ->and($alpha->metric(ComparisonMetricKey::MinimumForProfileTarget)->value)->toEqual(Money::fromCents(20_000))
+        ->and($alpha->metric(ComparisonMetricKey::MinimumForProfileTarget)->value)->toEqual($alpha->metric(ComparisonMetricKey::MinimumFor90)->value);
+
+    $filters = $alpha->profileFilters;
+    expect($filters?->result(ProfileCriterion::TargetCoverageAtBudget)->outcome)->toBe(CriterionOutcome::Pass)
+        // daily drawdown 20% (+10%, −20%, +5%), monthly 10% — both within 25%
+        ->and($filters?->result(ProfileCriterion::MaximumDrawdown)->outcome)->toBe(CriterionOutcome::Pass)
+        ->and($filters?->result(ProfileCriterion::MaximumDrawdown)->actual)->toEqual(Percentage::fromPartsPerBillion(200_000_000))
+        // 25 complete months (2024-09 … 2026-09)
+        ->and($filters?->result(ProfileCriterion::MinimumHistoryMonths)->actual)->toBe(25)
+        ->and($filters?->result(ProfileCriterion::MinimumHistoryMonths)->outcome)->toBe(CriterionOutcome::Pass)
+        ->and($filters?->result(ProfileCriterion::MaximumRiskScore)->outcome)->toBe(CriterionOutcome::NotApplied)
+        ->and($filters?->verdict)->toBe(ProfileFilterVerdict::AllAppliedPassed);
+
+    $bravoFilters = $bravo->profileFilters;
+    expect($bravoFilters?->result(ProfileCriterion::TargetCoverageAtBudget)->outcome)->toBe(CriterionOutcome::Unknown)
+        // no daily series: the monthly 0% alone cannot confirm the maximum
+        ->and($bravoFilters?->result(ProfileCriterion::MaximumDrawdown)->outcome)->toBe(CriterionOutcome::Unknown)
+        ->and($bravoFilters?->result(ProfileCriterion::MinimumHistoryMonths)->actual)->toBe(12)
+        ->and($bravoFilters?->result(ProfileCriterion::MinimumHistoryMonths)->outcome)->toBe(CriterionOutcome::Fail)
+        ->and($bravoFilters?->verdict)->toBe(ProfileFilterVerdict::AtLeastOneFailed);
+});
+
+it('reads no analysis profile when one is given and still never writes', function () {
+    $a = comparisonTraderA();
+    $b = comparisonTraderB();
+    $queries = [];
+    DB::listen(function (QueryExecuted $query) use (&$queries): void {
+        $queries[] = $query->sql;
+    });
+
+    app(BuildTraderComparison::class)->handle([$a->id, $b->id], profile: AnalysisProfileCriteria::builtInDefault());
+
+    expect(array_filter($queries, fn (string $sql): bool => str_contains($sql, 'analysis_profiles')))->toBe([])
+        ->and(array_filter($queries, fn (string $sql): bool => preg_match('/^\s*(insert|update|delete)/i', $sql) === 1))->toBe([]);
+});
+
+it('fails the target for a complete snapshot without positive weight, but is unknown when that snapshot is an estimate', function (?int $cashWeightPpb, bool $estimate, CriterionOutcome $expected) {
+    $trader = Trader::factory()->create([
+        'username' => 'zero',
+        'portfolio_synced_at' => '2026-10-07 01:00:00',
+        'portfolio_visibility' => PerformanceVisibility::Available,
+    ]);
+    // Only a zero-weight position; with the cash weight known the snapshot
+    // is complete, without it the copy figures are an estimate (D-042).
+    copySimulationStoredSnapshot([['pos-z', '1010', 0]], [
+        'cash_weight_ppb' => $cashWeightPpb,
+        'captured_at' => '2026-10-07 01:00:00',
+        'last_confirmed_at' => '2026-10-07 01:00:00',
+    ], $trader);
+    $b = comparisonTraderB();
+
+    $entry = app(BuildTraderComparison::class)->handle([$trader->id, $b->id])->entry($trader->id);
+    $coverage = $entry->metric(ComparisonMetricKey::CoverageAtProfileBudget);
+    $result = $entry->profileFilters?->result(ProfileCriterion::TargetCoverageAtBudget);
+
+    expect($coverage->unavailableReason)->toBe(MetricUnavailableReason::NoPositiveWeight)
+        ->and(in_array(MetricWarning::EstimatedFromIncompleteSnapshot, $coverage->warnings, true))->toBe($estimate)
+        ->and($result?->outcome)->toBe($expected)
+        ->and($result?->actual)->toBeNull()
+        ->and($result?->unknownReason)->toBe($estimate ? CriterionUnknownReason::MetricPartial : null);
+})->with([
+    'complete snapshot' => [1_000_000_000, false, CriterionOutcome::Fail],
+    'estimated snapshot' => [null, true, CriterionOutcome::Unknown],
+]);

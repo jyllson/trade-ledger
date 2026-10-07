@@ -6,7 +6,9 @@ namespace App\Application\Traders\Comparison;
 
 /**
  * Every metric of the comparison (PROJECT.md §14), in display order. Each
- * belongs to exactly one dimension (docs/DECISIONS.md D-047).
+ * belongs to exactly one dimension (docs/DECISIONS.md D-047). The
+ * `*ProfileBudget` / `MinimumForProfileTarget` keys are the copyability
+ * figures at the analysis profile's budget and target (D-048).
  */
 enum ComparisonMetricKey: string
 {
@@ -46,6 +48,10 @@ enum ComparisonMetricKey: string
     case SkippedWeightAt500 = 'skipped_weight_at_500';
     case SkippedCountAt1000 = 'skipped_count_at_1000';
     case SkippedWeightAt1000 = 'skipped_weight_at_1000';
+    case CoverageAtProfileBudget = 'coverage_at_profile_budget';
+    case SkippedCountAtProfileBudget = 'skipped_count_at_profile_budget';
+    case SkippedWeightAtProfileBudget = 'skipped_weight_at_profile_budget';
+    case MinimumForProfileTarget = 'minimum_for_profile_target';
 
     case PerformanceLastSuccessfulSync = 'performance_last_successful_sync';
     case PortfolioLastSuccessfulSync = 'portfolio_last_successful_sync';
@@ -93,7 +99,11 @@ enum ComparisonMetricKey: string
             self::SkippedCountAt500,
             self::SkippedWeightAt500,
             self::SkippedCountAt1000,
-            self::SkippedWeightAt1000 => ComparisonDimension::Copyability,
+            self::SkippedWeightAt1000,
+            self::CoverageAtProfileBudget,
+            self::SkippedCountAtProfileBudget,
+            self::SkippedWeightAtProfileBudget,
+            self::MinimumForProfileTarget => ComparisonDimension::Copyability,
 
             self::PerformanceLastSuccessfulSync,
             self::PortfolioLastSuccessfulSync,
@@ -112,12 +122,14 @@ enum ComparisonMetricKey: string
             self::SkippedCountAt200,
             self::SkippedCountAt500,
             self::SkippedCountAt1000,
+            self::SkippedCountAtProfileBudget,
             self::FailedEndpointCount => MetricUnit::Count,
 
             self::MinimumFor90,
             self::MinimumFor95,
             self::MinimumFor99,
-            self::MinimumForAllVisible => MetricUnit::Money,
+            self::MinimumForAllVisible,
+            self::MinimumForProfileTarget => MetricUnit::Money,
 
             self::WeightedLeverage => MetricUnit::Multiple,
 

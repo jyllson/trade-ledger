@@ -13,6 +13,9 @@ use App\Models\PerformanceVisibility;
  * `monthlyObservation` / `dailyObservation` describe the whole stored
  * series (null when none), `snapshotObservation` the latest stored
  * snapshot (null when none) — the per-trader inputs of ComparisonPeriods.
+ * `profileFilters` are the analysis profile criteria outcomes (D-048) —
+ * per criterion, never combined into a score; null only on an entry
+ * built before the filters were evaluated.
  */
 final readonly class TraderComparisonEntry
 {
@@ -29,7 +32,24 @@ final readonly class TraderComparisonEntry
         public ?ObservationPeriod $snapshotObservation,
         public ?int $portfolioSnapshotId,
         public array $metrics,
+        public ?ProfileFilterResult $profileFilters = null,
     ) {}
+
+    public function withProfileFilters(ProfileFilterResult $profileFilters): self
+    {
+        return new self(
+            $this->traderId,
+            $this->username,
+            $this->performanceVisibility,
+            $this->portfolioVisibility,
+            $this->monthlyObservation,
+            $this->dailyObservation,
+            $this->snapshotObservation,
+            $this->portfolioSnapshotId,
+            $this->metrics,
+            $profileFilters,
+        );
+    }
 
     public function metric(ComparisonMetricKey $key): ComparisonMetric
     {

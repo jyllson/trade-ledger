@@ -9,12 +9,17 @@ use App\Analytics\Calculators\ReturnDistributionCalculator;
 use App\Analytics\Data\CompletenessCheck;
 use App\Analytics\Data\CompletenessState;
 use App\Analytics\Data\CompletenessUnsupportedReason;
+use App\Analytics\Data\CopySimulationResult;
+use App\Analytics\Data\CoverageTargetResult;
 use App\Analytics\Data\DataCompletenessResult;
 use App\Analytics\Data\ExposureStatus;
 use App\Analytics\Data\ExposureUnavailableReason;
 use App\Analytics\Data\PeriodReturn;
 use App\Analytics\Data\ReturnPeriodGranularity;
+use App\Analytics\ValueObjects\Money;
 use App\Analytics\ValueObjects\Percentage;
+use App\Application\AnalysisProfiles\AnalysisProfileCriteria;
+use App\Application\AnalysisProfiles\ResolveDefaultAnalysisProfile;
 use App\Application\Traders\BuildCopySimulationMatrix;
 use App\Application\Traders\BuildTraderPerformanceReport;
 use App\Application\Traders\BuildTraderPortfolioReport;
@@ -48,10 +53,16 @@ use LogicException;
  * Reads STORED rows only through the existing read models and calculators:
  * never calls the eToro API and never writes (copy figures come from
  * BuildCopySimulationMatrix, which persists nothing).
+ *
+ * Every comparison is made under one analysis profile (D-048) — the given
+ * one, else the stored default, else the built-in default (read-only, never
+ * created here): its budget and target add copyability metrics, and its
+ * criteria are evaluated per trader by EvaluateProfileFilters.
  */
 final class BuildTraderComparison
 {
-    public const METHODOLOGY_VERSION = 'comparison-v1';
+    /** v2: profile-budget copyability metrics and profile filters (D-048). */
+    public const METHODOLOGY_VERSION = 'comparison-v2';
 
     public const MINIMUM_TRADERS = 2;
 
@@ -73,19 +84,23 @@ final class BuildTraderComparison
         private readonly ReturnDistributionCalculator $distributionCalculator,
         private readonly DataCompletenessCalculator $completenessCalculator,
         private readonly EvaluateTraderProfileFreshness $profileFreshness,
+        private readonly ResolveDefaultAnalysisProfile $defaultProfile,
+        private readonly EvaluateProfileFilters $profileFilters,
     ) {}
 
     /**
      * @param  list<int>  $traderIds  in display order
+     * @param  AnalysisProfileCriteria|null  $profile  null = the default profile (D-048)
      *
      * @throws TraderComparisonRejected
      */
-    public function handle(array $traderIds, ?CarbonInterface $now = null): TraderComparison
+    public function handle(array $traderIds, ?CarbonInterface $now = null, ?AnalysisProfileCriteria $profile = null): TraderComparison
     {
         // Every instant is UTC (D-046): a caller's display-zone `now` must
         // not shift the import-run window or any classification.
         $now = CarbonImmutable::instance($now ?? CarbonImmutable::now())->utc();
         $traders = $this->resolveTraders($traderIds);
+        $profile ??= $this->defaultProfile->handle();
 
         // Points and import runs of all traders are read in one query each;
         // the latest snapshot is read once per trader (D-047 point 9).
@@ -93,7 +108,7 @@ final class BuildTraderComparison
         $runs = $this->importRunsInWindow($traders, $now);
 
         $entries = array_map(
-            fn (Trader $trader): TraderComparisonEntry => $this->entry($trader, $now, $performance[$trader->id], $runs[$trader->id] ?? []),
+            fn (Trader $trader): TraderComparisonEntry => $this->entry($trader, $now, $performance[$trader->id], $runs[$trader->id] ?? [], $profile),
             $traders,
         );
 
@@ -118,6 +133,7 @@ final class BuildTraderComparison
                 daily: SeriesAlignment::of(ReturnPeriodGranularity::Daily, $daily),
                 snapshots: SnapshotAlignment::of($snapshots),
             ),
+            profile: $profile,
         );
     }
 
@@ -154,12 +170,15 @@ final class BuildTraderComparison
     /**
      * @param  list<ImportRun>  $importRuns  this trader's performance/portfolio runs in the failed-run window
      */
-    private function entry(Trader $trader, CarbonImmutable $now, TraderPerformanceReport $performance, array $importRuns): TraderComparisonEntry
+    private function entry(Trader $trader, CarbonImmutable $now, TraderPerformanceReport $performance, array $importRuns, AnalysisProfileCriteria $profile): TraderComparisonEntry
     {
         $portfolio = $this->portfolioReport->handle($trader);
         $matrix = $portfolio->snapshot === null
             ? null
             : $this->copySimulationMatrix->handle($portfolio->snapshot, positions: $portfolio->positions);
+        $budgetSimulation = $portfolio->snapshot === null
+            ? null
+            : $this->copySimulationMatrix->simulateAmount($portfolio->snapshot, $profile->budget, $profile->targetCoverage, positions: $portfolio->positions);
 
         $performanceFreshness = $this->freshness($trader->performance_visibility, $trader->performance_synced_at, $now);
         $portfolioFreshness = $this->freshness($trader->portfolio_visibility, $trader->portfolio_synced_at, $now);
@@ -182,6 +201,8 @@ final class BuildTraderComparison
                 to: $portfolio->snapshot->last_confirmed_at->toDateTimeImmutable(),
                 pointCount: 1,
             ),
+            profile: $profile,
+            budgetSimulation: $budgetSimulation,
         );
 
         $metrics = [];
@@ -202,7 +223,7 @@ final class BuildTraderComparison
             $ordered[$key->value] = $metrics[$key->value] ?? throw new LogicException(sprintf('Comparison metric "%s" was not built.', $key->value));
         }
 
-        return new TraderComparisonEntry(
+        $entry = new TraderComparisonEntry(
             traderId: $trader->id,
             username: $trader->username,
             performanceVisibility: $trader->performance_visibility,
@@ -213,6 +234,8 @@ final class BuildTraderComparison
             portfolioSnapshotId: $portfolio->snapshot?->id,
             metrics: $ordered,
         );
+
+        return $entry->withProfileFilters($this->profileFilters->evaluate($profile, $entry));
     }
 
     /**
@@ -463,7 +486,9 @@ final class BuildTraderComparison
 
     /**
      * Copy figures of the latest stored snapshot through the existing
-     * simulator matrix (D-042/D-043), with the stale snapshot marked (D-045).
+     * simulator matrix (D-042/D-043), with the stale snapshot marked (D-045),
+     * plus the same figures at the analysis profile's budget and target
+     * (D-048) through the same simulator.
      *
      * @return list<ComparisonMetric>
      */
@@ -480,11 +505,17 @@ final class BuildTraderComparison
             [CoverageTargetPreset::Percent99, ComparisonMetricKey::MinimumFor99],
             [CoverageTargetPreset::Percent100, ComparisonMetricKey::MinimumForAllVisible],
         ];
+        $profileKeys = [
+            ComparisonMetricKey::CoverageAtProfileBudget,
+            ComparisonMetricKey::SkippedCountAtProfileBudget,
+            ComparisonMetricKey::SkippedWeightAtProfileBudget,
+            ComparisonMetricKey::MinimumForProfileTarget,
+        ];
 
         $matrix = $context->matrix;
 
         if ($matrix === null) {
-            $keys = [...array_merge(...array_map(static fn (array $row): array => array_slice($row, 1), $presets)), ...array_column($targets, 1)];
+            $keys = [...array_merge(...array_map(static fn (array $row): array => array_slice($row, 1), $presets)), ...array_column($targets, 1), ...$profileKeys];
 
             return array_map(fn (ComparisonMetricKey $key): ComparisonMetric => $this->noSnapshot($key, $context), $keys);
         }
@@ -492,39 +523,50 @@ final class BuildTraderComparison
         $metrics = [];
 
         foreach ($presets as [$preset, $coverageKey, $skippedCountKey, $skippedWeightKey]) {
-            $metrics = [...$metrics, ...$this->presetMetrics($context, $matrix, $preset, $coverageKey, $skippedCountKey, $skippedWeightKey)];
+            $metrics = [...$metrics, ...$this->amountMetrics($context, $matrix, $preset->amount(), $matrix->presets[$preset->value], $coverageKey, $skippedCountKey, $skippedWeightKey)];
         }
 
         foreach ($targets as [$target, $key]) {
-            $metrics[] = $this->targetMetric($context, $matrix, $target, $key);
+            $metrics[] = $this->targetMetric($context, $matrix, $target->coverage(), $target->isInformational(), $matrix->targets[$target->value], $key);
         }
 
-        return $metrics;
+        $profile = $context->profile;
+        $budget = $context->budgetSimulation;
+
+        return [
+            ...$metrics,
+            ...$this->amountMetrics($context, $matrix, $profile->budget, $budget, ComparisonMetricKey::CoverageAtProfileBudget, ComparisonMetricKey::SkippedCountAtProfileBudget, ComparisonMetricKey::SkippedWeightAtProfileBudget),
+            // An out-of-range budget simulation has no target result either.
+            $this->targetMetric($context, $matrix, $profile->targetCoverage, $profile->targetCoverage->compareTo(Percentage::whole()) === 0, $budget?->target, ComparisonMetricKey::MinimumForProfileTarget),
+        ];
     }
 
     /**
+     * Coverage, skipped count and skipped weight of one copy amount.
+     *
+     * @param  CopySimulationResult|null  $result  null = out of the representable range (D-043)
      * @return list<ComparisonMetric>
      */
-    private function presetMetrics(
+    private function amountMetrics(
         TraderComparisonContext $context,
         CopySimulationMatrix $matrix,
-        CopyAmountPreset $preset,
+        Money $amount,
+        ?CopySimulationResult $result,
         ComparisonMetricKey $coverageKey,
         ComparisonMetricKey $skippedCountKey,
         ComparisonMetricKey $skippedWeightKey,
     ): array {
         [$warnings, $partial] = $this->copyWarnings($context, $matrix);
         $observation = $context->snapshotObservation ?? $context->noData;
-        $details = ['copy_amount' => $preset->amount(), 'portfolio_snapshot_id' => $matrix->portfolioSnapshotId];
+        $details = ['copy_amount' => $amount, 'portfolio_snapshot_id' => $matrix->portfolioSnapshotId];
 
-        if ($matrix->presetIsOutOfRange($preset)) {
+        if ($result === null) {
             return array_map(
                 static fn (ComparisonMetricKey $key): ComparisonMetric => ComparisonMetric::unavailable($key, MetricUnavailableReason::OutOfRange, $observation, $warnings, $details),
                 [$coverageKey, $skippedCountKey, $skippedWeightKey],
             );
         }
 
-        $result = $matrix->preset($preset);
         $coverage = $result->coverage;
 
         return [
@@ -550,23 +592,32 @@ final class BuildTraderComparison
         ];
     }
 
-    private function targetMetric(TraderComparisonContext $context, CopySimulationMatrix $matrix, CoverageTargetPreset $target, ComparisonMetricKey $key): ComparisonMetric
-    {
+    /**
+     * The effective minimum copy amount for one coverage target.
+     *
+     * @param  CoverageTargetResult|null  $result  null = out of the representable range (D-043)
+     */
+    private function targetMetric(
+        TraderComparisonContext $context,
+        CopySimulationMatrix $matrix,
+        Percentage $target,
+        bool $informational,
+        ?CoverageTargetResult $result,
+        ComparisonMetricKey $key,
+    ): ComparisonMetric {
         [$warnings, $partial] = $this->copyWarnings($context, $matrix);
         $observation = $context->snapshotObservation ?? $context->noData;
         $details = [
-            'target_coverage' => $target->coverage(),
-            'informational' => $target->isInformational(),
+            'target_coverage' => $target,
+            'informational' => $informational,
             'platform_minimum_copy_amount' => $matrix->platformMinimumCopyAmount,
             'minimum_position_amount' => $matrix->minimumPositionAmount,
             'portfolio_snapshot_id' => $matrix->portfolioSnapshotId,
         ];
 
-        if ($matrix->targetIsOutOfRange($target)) {
+        if ($result === null) {
             return ComparisonMetric::unavailable($key, MetricUnavailableReason::OutOfRange, $observation, $warnings, $details);
         }
-
-        $result = $matrix->target($target);
 
         if ($result->effectiveMinimumCopyAmount === null) {
             return ComparisonMetric::unavailable($key, MetricUnavailableReason::NoPositiveWeight, $observation, $warnings, $details);

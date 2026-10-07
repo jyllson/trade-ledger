@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AnalysisProfile;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Queue\Jobs\FakeJob;
 use Tests\TestCase;
@@ -34,4 +35,14 @@ function fakeQueueJobWithUuid(string $uuid = 'queue-job-uuid-1'): FakeJob
             return $this->payloadUuid;
         }
     };
+}
+
+/**
+ * Removes the default analysis profile stored by the migration (D-048) for
+ * tests that set up their own profiles on an empty table. A mass delete
+ * fires no model events, so the default guard does not apply.
+ */
+function withoutStoredAnalysisProfiles(): void
+{
+    AnalysisProfile::query()->delete();
 }

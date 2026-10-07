@@ -2260,3 +2260,168 @@ pragovi zastarelosti i brojanje neuspelih endpointa.
    UTC 1. → završen), a display timezone (Europe/Malta, D-046) ne utiče
    ni na klasifikaciju, trailing metrike ni na prozor failed run-ova
    (testovi).
+
+## D-048: Analysis profile i transparentni filteri — šema, default, mapiranje kriterijuma i ishodi
+
+**Datum:** 2026-10-07
+**Status:** usvojeno (Milestone 5, Checkpoint B, grana
+`codex/milestone-5-trader-comparison`; bez stranice za poređenje, bez
+live poziva)
+
+**Kontekst:** PROJECT.md §11 `analysis_profiles` (i
+`copy_simulations.analysis_profile_id`), §14 (bez skora), §15 (filteri,
+Settings), §20 M5 („default analysis profile; transparent filters; no
+hidden overall score“). Read model iz Checkpoint A (D-047) već daje sve
+metrike sa statusom; nedostaju profil, filteri i copyability na budžetu
+profila.
+
+**Odluka:**
+
+1. **Šema `analysis_profiles` (odstupanja od §11):**
+   - Novac u **integer centima**, udeli u **ppb** (signed BIGINT, 1.0 =
+     10⁹), isto kao `copy_simulations` (D-042) i `Percentage`/`Money` —
+     tačno poređenje sa metrikama (takođe ppb) bez konverzije i bez
+     float-a: `budget_cents`, `target_coverage_ppb` (default 950_000_000),
+     `maximum_drawdown_ppb`, `maximum_single_position_ppb`,
+     `minimum_positive_months_ppb`, `maximum_allocation_per_trader_ppb`.
+   - `maximum_risk_score` = unsigned TINYINT (eToro skala 1–10, ceo broj),
+     `minimum_history_months` = unsigned SMALLINT.
+   - `minimum_positive_months` je **udeo** pozitivnih završenih meseci
+     (§15 „minimum positive-month ratio“), ne broj meseci.
+   - `maximum_allocation_per_trader` je **udeo budžeta** po traderu.
+   - `name` jedinstven (`analysis_profiles_name_unique`).
+2. **Tačno jedan default:**
+   - **Baza (najviše jedan):** generisana STORED kolona `default_marker` =
+     `case when is_default = 1 then 1 end` sa unique indeksom
+     `analysis_profiles_one_default_unique` — NULL-ovi se ne sudaraju, pa
+     je dozvoljen proizvoljan broj ne-default redova, a najviše jedan
+     default (MySQL nema parcijalne indekse; isto radi na SQLite-u).
+     Provereno na `trade_ledger` u transakciji koja je vraćena (drugi
+     default → `UniqueConstraintViolationException`).
+   - **Aplikacija (najmanje jedan):** `is_default` nije fillable (forma i
+     mass assignment ga ne mogu menjati); default se ne može obrisati:
+     svako brisanje (Filament pojedinačno i bulk) ide kroz
+     `DeleteAnalysisProfiles` — jedna transakcija, svi redovi zaključani
+     (`lockForUpdate`, isti redosled kao `MakeAnalysisProfileDefault`),
+     AKTUELNI default proveren neposredno pre DELETE-a, a i sam DELETE
+     isključuje `is_default = 1`; učitani model može biti zastareo
+     (konkurentni „Make default“), pa se njegov `is_default` ne koristi.
+     Sve ili ništa: ako je default među izabranima, ne briše se nijedan
+     (`DefaultAnalysisProfileCannotBeDeleted`, Filament obaveštenje).
+     Model `deleting` ostaje poslednja odbrana za direktan `delete()` i
+     čita sačuvanu vrednost, ne učitanu (test: učitan kao ne-default,
+     zatim promovisan → brisanje odbijeno); default se pomera samo
+     kroz `MakeAnalysisProfileDefault` — jedna transakcija, svi redovi
+     zaključani, ciljni profil proveren (`findOrFail`) PRE skidanja
+     starog default-a, pa se stari skida pre postavljanja novog (unique
+     indeks važi po naredbi). Obrisan cilj → izuzetak, stari default
+     ostaje (test).
+   - **Default red upisuje migracija** `2026_10_07_100100_seed_default_analysis_profile`
+     (posebna, posle create tabele; idempotentna: postoji default → ništa;
+     ima profila bez default-a → najstariji postaje default; prazna tabela
+     → ugrađeni default, vrednosti zamrznute u migraciji). **Read stranice
+     ne pišu u bazu:** lista profila u Filament-u ne upisuje ništa ni kad
+     default ne postoji (test sa `DB::listen`). `EnsureDefaultAnalysisProfile`
+     više nema poziva (predloženo uklanjanje, čeka odobrenje brisanja).
+   - `ResolveDefaultAnalysisProfile` je **samo čitanje**: sačuvani default
+     ili ugrađeni (`profileId = null`, `isBuiltIn()`), nikad upis — read
+     model poređenja ostaje bez upisa (D-047 t. 2) i radi sa ugrađenim
+     default-om ako red iz nekog razloga ne postoji.
+3. **Ugrađeni default:** „Default“, **budžet $500**, **target 95%**, svi
+   restriktivni kriterijumi i alokacija **null = not applied**. $500 je
+   srednji preset simulatora (D-042): iznad platformskog minimuma $200
+   (na kom target 95% retko prolazi kod portfolija sa mnogo malih
+   pozicija), realan lični iznos, a jednak presetu pa se figure na budžetu
+   mogu proveriti prema `coverage_at_500` / `minimum_for_95` (test). 95%
+   je §11 default i srednji target §12. Restriktivni pragovi su lične
+   preferencije — podrazumevani prag bi bio skriveno mišljenje.
+4. **Granice (forma i `AnalysisProfileCriteria` konstruktor):** budžet
+   $200 (platformski minimum — manji budžet ne kopira nikoga) – $10M
+   (`CopySimulationInput::MAXIMUM_AMOUNT_CENTS`, D-043), najviše 2
+   decimale; target (0, 100]; drawdown / single position / positive
+   months [0, 100]; alokacija (0, 100]; procenti najviše 7 decimala
+   (tačno u ppb, `AnalysisProfileInput`, bez float-a); risk score 1–10;
+   istorija 1–600 meseci. Prazno polje = null = not applied.
+5. **`copy_simulations.analysis_profile_id` NIJE dodat:** simulacije
+   upisuje samo `SimulateCopyAmount` (CLI / Livewire simulator sa
+   eksplicitnim iznosom), nijedan tok ne pravi simulaciju iz profila, a
+   poređenje ne upisuje ništa. Kolona bi ostala uvek null; uvodi se
+   (nullable FK, `nullOnDelete`) kad neki tok bude upisivao simulaciju
+   za profil.
+6. **Copyability na budžetu profila:** `BuildTraderComparison::handle(ids,
+   now, ?AnalysisProfileCriteria $profile)` — bez profila koristi
+   `ResolveDefaultAnalysisProfile`. Nove metrike (dimenzija Copyability):
+   `coverage_at_profile_budget`, `skipped_count_at_profile_budget`,
+   `skipped_weight_at_profile_budget`, `minimum_for_profile_target`
+   (effective minimum za target profila). Računaju se UVEK (i kad je
+   budžet jednak presetu — iste brojke, jednostavniji ugovor) kroz novu
+   `BuildCopySimulationMatrix::simulateAmount()` — isti adapter i
+   `CopySimulationCalculator::simulate(..., target)` kao preseti, nad već
+   učitanim pozicijama (bez novih upita po traderu); isti statusi,
+   upozorenja i razlozi kao preseti (D-047 t. 4). Jedan dodatni upit
+   (čitanje default profila) — 10 tradera: 44 upita; sa zadatim profilom
+   ostaje 43. `methodologyVersion` → **`comparison-v2`**;
+   `TraderComparison::$profile` nosi korišćeni profil.
+7. **Evaluator `EvaluateProfileFilters` (čist, bez Eloquent-a/baze):**
+   profil + jedan `TraderComparisonEntry` → `ProfileFilterResult`; po
+   kriterijumu `CriterionResult`: kriterijum, prag, stvarna vrednost,
+   ishod, objašnjenje (engleski, tačni procenti bez zaokruživanja),
+   metrike koje čita, njihova upozorenja, razlog nepoznatog, details.
+   **Ishodi:** `pass`, `fail`, `unknown`, `not_applied` (prag null),
+   `informational`. **Pravila:** jednakost sa pragom prolazi („najviše“ /
+   „najmanje“); metrika `unavailable` → `unknown` (`metric_unavailable` +
+   razlog metrike); metrika `partial` → `unknown` (`metric_partial`,
+   vrednost se ipak prikazuje) — deo ulaza je nepoznat/procenjen pa ni
+   pass ni fail nisu pouzdani; unknown se nikad ne pretvara u pass/fail.
+   Upozorenja (stale, no longer visible…) ne menjaju ishod, prenose se uz
+   njega. Entry izgrađen za drugi budžet/target → `InvalidArgumentException`.
+8. **Mapiranje kriterijum → metrika:**
+   - `target_coverage` (copyability): `coverage_at_profile_budget` (udeo
+     pozitivne težine pozicija pokriven na budžetu, D-022) ≥ target → pass;
+     details: `minimum_for_profile_target`. Bez pozitivne težine → **fail**
+     (poznata činjenica: ništa se ne može kopirati, target nedostižan;
+     stvarna vrednost null, ne izmišljena 0) — **samo za kompletan
+     snapshot**; ako metrika nosi `estimated_from_incomplete_snapshot`
+     (nepotpun snapshot, `is_estimate`), „bez pozitivne težine“ nije
+     sigurno → unknown (`metric_partial`, details
+     `metric_unavailable_reason = no_positive_weight`); bez snapshot-a /
+     van opsega / procena → unknown. Provereno i za ostale kriterijume:
+     procena se nigde drugde ne pretvara u siguran ishod (partial →
+     unknown kroz zajedničko pravilo; drawdown uzima samo `available`;
+     istorija i positive months ne zavise od snapshot-a).
+   - `maximum_drawdown`: **i dnevni i mesečni** max drawdown (magnitude,
+     D-033). Dnevna serija je finija ali obično kraća, mesečna duža ali
+     slepa za pad unutar meseca — nijedna sama ne ograničava najgori
+     posmatrani pad. Bilo koja dostupna iznad praga → fail; pass samo kad
+     su obe dostupne i ≤ prag; inače unknown. Stvarna vrednost = gora
+     poznata; obe u details.
+   - `maximum_risk_score`: `risk_score` — aplikacija ga ne prikuplja
+     (D-047), pa je uvek **unknown** (`not_provided_by_source`); ako bude
+     prikupljan (ceo broj), poredi se ≤.
+   - `maximum_single_position`: `largest_position` — po instrumentu, udeo
+     invested težine poslednjeg snapshot-a (D-041); partial → unknown.
+   - `minimum_history_months`: broj **završenih** kalendarskih meseci
+     sačuvane mesečne serije (delimičan prvi i mesec u toku isključeni,
+     D-033) = period `positive_month_ratio` metrike; serija bez završenog
+     meseca = poznatih 0 (fail); bez serije → unknown.
+   - `minimum_positive_months`: `positive_month_ratio` (r > 0 nad
+     završenim mesecima) ≥ prag.
+   - `maximum_allocation_per_trader`: **informational** — ograničenje
+     kako korisnik deli budžet među traderima, ne svojstvo tradera; nema
+     metrike sa kojom se poredi, a primena na copyability bi tiho promenila
+     iznos na kom se coverage ocenjuje. Prikazuje se udeo i iznos
+     floor(budžet × udeo). Ocena coverage-a na iznosu po traderu bila bi
+     nova verzija metodologije.
+9. **Bez skora:** `ProfileFilterVerdict` je izvedeni, netežinski sažetak
+   sa fiksnim prvenstvom fail > unknown > pass: `at_least_one_failed`,
+   `at_least_one_unknown` (nijedan fail), `all_applied_passed`,
+   `none_applied` (nedostižno — target je uvek primenjen). Nema broja
+   prolazaka, procenta ni težina (test refleksijom);
+   `criteriaWithOutcome()` vraća spisak kriterijuma po ishodu.
+10. **Filament:** `AnalysisProfileResource` (Settings → Analysis profiles):
+    lista (default ikona, budžet, target, kriterijumi; prazno = „Not
+    applied“), create/edit forma sa opisom svakog polja (USD i procentni
+    poeni, tačna konverzija u cente/ppb), akcija „Make default“ (tabela i
+    edit stranica, uz potvrdu) kroz `MakeAnalysisProfileDefault`, brisanje
+    (red, edit stranica i bulk) samo ne-default profila kroz
+    `DeleteAnalysisProfiles`; lista je samo čitanje. Stranica za poređenje je Checkpoint C.

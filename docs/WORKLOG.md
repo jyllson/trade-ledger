@@ -2086,3 +2086,80 @@ bez commit-a (izmene ostavljene za review).
 
 Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno;
 bez commit-a.
+
+## 2026-10-07 — Milestone 5, Checkpoint B: analysis profile i transparentni filteri (D-048)
+
+### Urađeno
+
+- Migracija `analysis_profiles` (centi / ppb; unique `name`; najviše jedan
+  default preko generisane `default_marker` kolone sa unique indeksom),
+  model `AnalysisProfile` (`is_default` nije fillable, default se ne briše,
+  `toCriteria()`), factory (`asDefault`). `php artisan migrate` nad
+  `trade_ledger` urađen.
+- `App\Application\AnalysisProfiles`: `AnalysisProfileCriteria` (čist DTO sa
+  granicama, ugrađeni default $500 / 95%), `AnalysisProfileSettings`,
+  `AnalysisProfileInput` (tačna konverzija USD/procenata),
+  `ResolveDefaultAnalysisProfile` (samo čitanje),
+  `EnsureDefaultAnalysisProfile`, `MakeAnalysisProfileDefault` (atomsko
+  prebacivanje).
+- `EvaluateProfileFilters` (čist) + `ProfileCriterion`, `CriterionOutcome`,
+  `CriterionResult`, `CriterionUnknownReason`, `ProfileFilterResult`,
+  `ProfileFilterVerdict`: po kriterijumu pass / fail / unknown /
+  not_applied / informational, bez skora.
+- `BuildTraderComparison` prima opcioni profil (default inače), dodaje 4
+  copyability metrike na budžetu/targetu profila preko nove
+  `BuildCopySimulationMatrix::simulateAmount()` i `profileFilters` po
+  traderu; `comparison-v2`.
+- Filament `AnalysisProfileResource` (lista, create, edit, „Make default“,
+  brisanje samo ne-default).
+- `copy_simulations.analysis_profile_id` namerno nije dodat (D-048 t. 5).
+
+### Verifikacija
+
+- `php artisan test`: 1938 total, 1934 passed, 4 skipped, 1 poznato
+  nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno
+(jedina provera na dev bazi u transakciji koja je vraćena); bez commit-a.
+
+## 2026-10-07 — Milestone 5, Checkpoint B: ispravke posle review-a (D-048)
+
+### Urađeno
+
+- Brisanje profila kroz novi `DeleteAnalysisProfiles`: transakcija,
+  `lockForUpdate` nad svim redovima, provera AKTUELNOG default-a
+  neposredno pre DELETE-a, DELETE isključuje default; sve ili ništa.
+  Filament pojedinačno brisanje (red, edit stranica) i novi bulk delete
+  idu kroz njega. Model `deleting` čita sačuvani flag, ne učitani.
+- `EvaluateProfileFilters`: „bez pozitivne težine“ je `fail` samo za
+  kompletan snapshot; uz `estimated_from_incomplete_snapshot` → `unknown`
+  (`metric_partial`). Ostali kriterijumi provereni — isti obrazac ne postoji.
+- Default profil upisuje nova migracija
+  `2026_10_07_100100_seed_default_analysis_profile` (idempotentna); lista
+  profila više ne piše u bazu (uklonjen `EnsureDefaultAnalysisProfile`
+  poziv iz `ListAnalysisProfiles`). `php artisan migrate` nad
+  `trade_ledger` urađen (postojeći default zadržan, tačno jedan default).
+- Testovi: interleaving brisanja (servis, model, Filament), bulk sve ili
+  ništa, integracioni test fail/unknown za NoPositiveWeight kroz
+  `BuildTraderComparison`, migracija (tačno jedan default, idempotentnost,
+  promocija najstarijeg), GET liste bez upisa. Helper
+  `withoutStoredAnalysisProfiles()` za testove koji kreću od prazne tabele.
+
+### Otvoreno
+
+- `EnsureDefaultAnalysisProfile` više nema poziva — predlog za uklanjanje
+  (brisanje fajla čeka odobrenje).
+
+### Verifikacija
+
+- `php artisan test`: 1947 total, 1943 passed, 4 skipped, 1 poznato
+  nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno;
+bez commit-a.
