@@ -29,4 +29,15 @@ enum CriterionOutcome: string
     {
         return $this === self::Pass || $this === self::Fail || $this === self::Unknown;
     }
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Pass => 'Pass',
+            self::Fail => 'Fail',
+            self::Unknown => 'Unknown',
+            self::NotApplied => 'Not applied',
+            self::Informational => 'Informational',
+        };
+    }
 }

@@ -2163,3 +2163,45 @@ Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno
 
 Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno;
 bez commit-a.
+
+## 2026-10-07 — Milestone 5, Checkpoint C: stranica za poređenje (D-049)
+
+### Urađeno
+
+- `App\Filament\Pages\CompareTraders` (Research → „Compare traders“):
+  izbor u URL-u (`?traders=…&profile=…`), validacija istim razlozima kao
+  read model + sintaksa ID-jeva, čipovi sa uklanjanjem, „Add trader“,
+  „Clear selection“, izbor profila (default unapred), upozorenja o
+  periodima i kvalitetu podataka, jedna tabela po §14 dimenzijama, sekcija
+  filtera profila sa pragovima i izvedenim sažetkom (ne skor), mali
+  equity grafici po traderu, „Export CSV“.
+- Bulk akcija „Compare“ na Traders tabeli (2–10, inače poruka bez
+  navigacije).
+- `TraderComparisonCsv` (mašinski čitljiv CSV, UTC ISO-8601, zaštita od
+  CSV injection-a); `ComparisonDisplay` (formatiranje);
+  `TraderComparisonEquityChart`; `label()` na enum-ima poređenja.
+- Testovi: `tests/Feature/Filament/Pages/CompareTradersTest.php` (23).
+
+### Vizuelni QA
+
+Headless Chrome (CDP, isti skript kao M4, bez paketa) nad izolovanom
+sintetičkom SQLite bazom `/private/tmp/tl-qa-m5c/qa.sqlite` (env varijable
+procesa; `.env` nije čitan ni menjan; dev baza nije dirana): 4 tradera
+različitih perioda, jedan privatan sa zastarelim snapshot-om i failed
+run-ovima, jedan bez podataka. Light, dark, dark sa drugim profilom,
+prazno stanje, nevalidan URL. Nalazi: grafici su zauzimali ceo red
+(ispravljeno `columnSpan = 1`), snapshot period ponavljan u svakoj
+copyability ćeliji (sada samo tooltip + tabela perioda). Artefakti u
+`/private/tmp/tl-qa-m5c/`.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1970 total, 1966 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+  Frontend asseti nisu menjani (`npm run build` nije potreban).
+
+### Bezbednost
+
+Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno;
+bez commit-a.

@@ -15,4 +15,15 @@ enum ComparisonDimension: string
     case Consistency = 'consistency';
     case Copyability = 'copyability';
     case DataQuality = 'data_quality';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Performance => 'Performance',
+            self::Risk => 'Risk',
+            self::Consistency => 'Consistency',
+            self::Copyability => 'Copyability',
+            self::DataQuality => 'Operational / data quality',
+        };
+    }
 }

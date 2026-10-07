@@ -38,4 +38,21 @@ enum MetricUnavailableReason: string
 
     /** The sync never succeeded / never reached the API. */
     case NeverSynced = 'never_synced';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::NoPerformanceData => 'No stored performance data of this granularity',
+            self::InsufficientHistory => 'Not enough complete periods',
+            self::NotProvidedBySource => 'Not collected from the data source',
+            self::NoStoredSnapshot => 'No stored portfolio snapshot',
+            self::NoInvestedWeight => 'Snapshot has no invested weight (empty or cash only)',
+            self::NoData => 'No position carries the needed data',
+            self::LeverageNotDeterminable => 'Leverage unknown for part of the invested weight',
+            self::NoPositiveWeight => 'Snapshot has no positive position weight',
+            self::OutOfRange => 'Out of range — practically unreachable',
+            self::NonPositiveReturn => 'Undefined for a zero or negative compounded return',
+            self::NeverSynced => 'Never synced successfully',
+        };
+    }
 }

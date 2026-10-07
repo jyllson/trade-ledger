@@ -36,4 +36,19 @@ enum MetricWarning: string
 
     /** Drawdown at monthly granularity — not an intraday or daily drawdown (§13.3). */
     case MonthlyGranularityNotIntraday = 'monthly_granularity_not_intraday';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::IncludesPartialStartPeriod => 'Includes a partial first period',
+            self::IncludesInProgressPeriod => 'Includes the period in progress',
+            self::PerformanceNoLongerVisible => 'Performance no longer visible — last known history',
+            self::PerformanceStale => 'Performance data is stale',
+            self::SnapshotNoLongerVisible => 'Portfolio no longer visible — last known snapshot, may be outdated',
+            self::SnapshotStale => 'Portfolio snapshot is stale',
+            self::EstimatedFromIncompleteSnapshot => 'Estimate — incomplete snapshot',
+            self::PositionsWithoutUsableWeightExcluded => 'Positions without usable weight excluded',
+            self::MonthlyGranularityNotIntraday => 'Monthly granularity — not intraday',
+        };
+    }
 }

@@ -2425,3 +2425,83 @@ profila.
     edit stranica, uz potvrdu) kroz `MakeAnalysisProfileDefault`, brisanje
     (red, edit stranica i bulk) samo ne-default profila kroz
     `DeleteAnalysisProfiles`; lista je samo čitanje. Stranica za poređenje je Checkpoint C.
+
+## D-049: Stranica za poređenje tradera — URL izbor, prikaz, CSV i grafici
+
+**Datum:** 2026-10-07
+**Status:** usvojeno (Milestone 5, Checkpoint C, grana
+`codex/milestone-5-trader-comparison`; bez live poziva)
+
+**Kontekst:** PROJECT.md Flow E, §14, §15 Compare page (2–10 tradera, jedna
+tabela, male grafike gde korisno, bez radar grafikona, jasno upozorenje
+kad se periodi razlikuju), §20 M5 (CSV opciono). Read model (D-047) i
+filteri (D-048) već postoje.
+
+**Odluka:**
+
+1. **Stranica `App\Filament\Pages\CompareTraders`** (Research → „Compare
+   traders“, `/admin/compare-traders`). Izbor je u URL-u:
+   `?traders=3,1,7&profile=2` (Livewire `#[Url]`), redosled = redosled
+   kolona; stranica je deljiva i preživljava reload. Validacija: prvo
+   sintaksa (svaki id `^[1-9]\d{0,17}$`, prazan token je greška), zatim
+   tačno razlozi read modela (`TraderComparisonRejected`: premalo,
+   previše, duplikat, nepostojeći — sa spornim ID-jevima); greška se
+   prikazuje kao `danger` callout, bez tabele. Izbor se menja na samoj
+   stranici: čip po URL tokenu (i nevalidnom/nepostojećem) sa „×“,
+   „Add trader“ (pretraga po username-u, onemogućeno na 10, duplikat →
+   obaveštenje), „Clear selection“. Bez izbora: prazno stanje sa
+   uputstvom.
+2. **Bulk akcija „Compare“** na Traders tabeli: 2–10 izabranih → redirect
+   na stranicu sa ID-jevima rastuće (deterministički URL); van opsega →
+   `warning` obaveštenje, bez navigacije. Ništa ne upisuje.
+3. **Profil:** select „Default profile“ (prazna vrednost = sačuvani ili
+   ugrađeni default, D-048) je unapred izabran; ostali profili po imenu.
+   Nepostojeći `profile` u URL-u → upozorenje i default (eksplicitno, ne
+   ćutke).
+4. **Jedna tabela:** redovi = §14 metrike grupisane po dimenziji
+   (`ComparisonDimension::label()`), kolone = traderi. Ćelija: vrednost sa
+   jedinicom, `Partial` badge, ili `Unavailable` + razlog (za
+   `insufficient_history` „needs N, has M“); upozorenja metrike uz
+   vrednost; period posmatranja u tooltip-u svake ćelije i kao sitan tekst
+   za metrike iz serije (snapshot periodi su jednom u tabeli perioda, da
+   se ne ponavljaju u ~20 copyability redova). Labele su u enum-ima
+   (`ComparisonMetricKey`, `MetricUnavailableReason`, `MetricWarning`,
+   `DataFreshness`, `CriterionOutcome`, `CriterionUnknownReason`,
+   `ProfileFilterVerdict`) — jedan izvor za UI i CSV. **Nema skora,
+   ranga ni isticanja „najboljeg“**: jedine boje su statusi (partial/
+   unavailable) i ishodi filtera (pass/fail/unknown…), nikad poređenje
+   vrednosti između tradera. Completeness score ima objašnjenje formule
+   uz labelu i napomenu o „not supported“ proverama.
+5. **Upozorenja na vrhu:** (a) periodi — `warning` callout kad
+   `observationPeriodsDiffer()` (inače neutralan „match“), uvek sa tabelom
+   mesečni/dnevni period i snapshot po traderu i zajedničkim mesečnim
+   periodom ili izjavom da ga nema; (b) data quality po traderu (`danger`):
+   stale > 48 h sa vremenom sync-a, private/not found sa poslednjim
+   snapshot-om (captured / last confirmed, D-045), nikad sinhronizovano,
+   nema serije/snapshot-a, failed sync run-ovi u 7 dana (po tipu),
+   completeness < 100% sa stanjem svake provere.
+6. **Filteri:** red po `ProfileCriterion` sa pragom u zaglavlju reda
+   („≥ 95%“, „≤ 20%“, „≥ 24 months“, „Not applied“), ćelija = ishod badge
+   + stvarna vrednost + objašnjenje evaluatora + upozorenja; poslednji red
+   „Summary of outcomes — derived, unweighted, not a score“ (D-048 t. 9).
+7. **Grafici:** mali višestruki mesečni equity index po traderu
+   (`TraderComparisonEquityChart` nasleđuje M3 `TraderEquityChart`, isti
+   podaci, Chart.js iz Filament-a, bez novih paketa), u mreži; naslov =
+   username + sopstveni period, napomena da x-ose nisu poravnate. Jedan
+   zajednički linijski grafikon nije izabran jer bi indeksi sa različitim
+   početkom (100% u različitim mesecima) izgledali uporedivo. Bez radar-a.
+8. **CSV (`TraderComparisonCsv`, „Export CSV“):** dugački (tidy) format,
+   jedan red po vrednosti: `section` (`comparison` / `observation_period`
+   / `metric` / `profile_filter` / `profile_filter_summary`), dimenzija,
+   mašinski ključ i labela, trader id/username (lokalni izvoz — username
+   je legitiman), status, vrednost, jedinica, prag, razlog (kod), upozorenja
+   (`;`), napomena (tekst), period (basis, granularnost, od/do, broj
+   tačaka, partial/in-progress). Vrednosti: udeli kao decimalni razlomak sa
+   9 decimala (0.250000000 = 25%), novac kao USD sa 2 decimale bez
+   formatiranja, trenuci kao ISO-8601 UTC sa `Z` (kolone `*_utc`), periodi
+   serije kao UTC datumi. CSV injection: tekstualna ćelija koja počinje sa
+   `= + - @`, tab, CR ili LF dobija vodeći apostrof; čisti brojevi
+   (`^-?\d+(\.\d+)?$`, i negativni) ostaju netaknuti. Ime fajla
+   `trader-comparison-YYYYMMDD-HHMMSSZ.csv`.
+9. Render nikad ne zove eToro i ne upisuje (testovi:
+   `Http::preventStrayRequests` + `assertNothingSent`, `DB::listen`).

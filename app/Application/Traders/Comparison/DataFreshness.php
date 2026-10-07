@@ -25,4 +25,14 @@ enum DataFreshness: string
     {
         return $this === self::Fresh;
     }
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Fresh => 'Fresh',
+            self::Stale => 'Stale',
+            self::NoLongerVisible => 'No longer visible (private / not found)',
+            self::NeverSynced => 'Never synced',
+        };
+    }
 }

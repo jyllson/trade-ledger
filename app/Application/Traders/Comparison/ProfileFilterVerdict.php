@@ -22,4 +22,14 @@ enum ProfileFilterVerdict: string
 
     /** No criterion is applied (only possible without a target, which the profile always has). */
     case NoneApplied = 'none_applied';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::AtLeastOneFailed => 'At least one applied criterion failed',
+            self::AtLeastOneUnknown => 'None failed, at least one unknown',
+            self::AllAppliedPassed => 'All applied criteria passed',
+            self::NoneApplied => 'No criterion applied',
+        };
+    }
 }
