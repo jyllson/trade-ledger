@@ -2082,3 +2082,181 @@ jasno označen kao zastareo.
    leto/zimu i oba DST prelaza (uklj. 2026-10-25 02:59 CEST → 02:00 CET),
    UTC čuvanje, TraderResource tabela i stranica tradera, ImportRun
    tabela i stranica.
+
+## D-047: Read model za poređenje tradera — dimenzije, statusi, periodi i nove formule
+
+**Datum:** 2026-10-07
+**Status:** usvojeno (Milestone 5, Checkpoint A, grana
+`codex/milestone-5-trader-comparison`; bez UI-ja, bez live poziva)
+
+**Kontekst:** PROJECT.md Flow E, §14 (pet nezavisnih dimenzija, bez
+ukupnog skora), §15 Compare page (2–10 tradera, upozorenje kad se periodi
+razlikuju), §13.8 (completeness) i §20 M5 acceptance. Većina §14 metrika
+već postoji u M3/M4 kalkulatorima (D-033, D-041, D-042); nedostaju
+disperzija mesečnih prinosa, zavisnost od najboljeg meseca, completeness,
+pragovi zastarelosti i brojanje neuspelih endpointa.
+
+**Odluka:**
+
+1. **`App\Application\Traders\Comparison\BuildTraderComparison::handle(list<int>, ?now)`**
+   → `TraderComparison`. Ulaz: 2–10 **različitih, postojećih** trader ID-jeva
+   (redosled = redosled prikaza). Inače `TraderComparisonRejected`
+   (`InvalidArgumentException`) sa razlogom `too_few_traders` /
+   `too_many_traders` / `duplicate_trader` / `unknown_trader` i spiskom
+   spornih ID-jeva; duplikati se ne uklanjaju ćutke. Provere idu tim
+   redom (broj se proverava nad ulazom sa duplikatima).
+2. **Samo čitanje:** koristi postojeće `BuildTraderPerformanceReport`,
+   `BuildTraderPortfolioReport` (poslednji snapshot, D-045) i
+   `BuildCopySimulationMatrix` (ništa ne upisuje) — nikad eToro API, nikad
+   upis (test: `Http::preventStrayRequests`, `Http::assertNothingSent`,
+   `DB::listen` bez insert/update/delete). Semantika postojećih
+   kalkulatora je nepromenjena.
+3. **Svaka metrika je `ComparisonMetric`** (ključ `ComparisonMetricKey`,
+   dimenzija i jedinica izvedene iz ključa): `status` available / partial /
+   unavailable; invarijanta u konstruktoru — unavailable ⇔ `value = null`
+   + `MetricUnavailableReason`; available/partial ⇔ vrednost bez razloga.
+   **Nepoznato nikad nije 0.** `warnings` (`MetricWarning`) su ograde koje
+   UI prikazuje uz vrednost; `details` nose prateće brojke (npr. potreban/
+   dostupan broj perioda, osnovica težina, poznati doprinos leverage-a).
+   `partial` = vrednost izračunata, ali deo ulaza nepoznat/procenjen
+   (exposure `Partial`, isključene pozicije bez težine, copy `is_estimate`).
+   **Nema ukupnog ni kombinovanog skora** (§14): `TraderComparison` i
+   `TraderComparisonEntry` nemaju nijedno takvo polje/metod (test
+   refleksijom); completeness je metrika kvaliteta podataka sa formulom
+   uz sebe, ne ocena tradera.
+4. **Mapiranje §14 → izvori:**
+   - Performance (mesečna serija): cumulative (sve tačke, uklj. delimične —
+     upozorenja `includes_partial_start_period` / `includes_in_progress_period`),
+     trailing 12/24 (poslednjih 12/24 završenih meseci; manje → unavailable
+     `insufficient_history` sa `required/available_complete_periods`),
+     prosek/medijana/profitable-month ratio (završeni meseci, D-033).
+   - Risk: dnevni i mesečni max drawdown (svaki iz svoje serije; mesečni
+     nosi `monthly_granularity_not_intraday`), mesečna i godišnja (×√12)
+     volatilnost iz `ConsistencyCalculator`-a; **risk score = uvek
+     unavailable `not_provided_by_source`** (aplikacija ga ne prikuplja —
+     nijedno polje/endpoint); largest position i top-3 = koncentracija **po
+     instrumentu** (pozicije istog instrumenta sabrane, invested-only, D-041);
+     weighted leverage tačno po D-041 t. 5: kad deo invested težine nema
+     leverage → unavailable `leverage_not_determinable` sa
+     `known_leverage_contribution` / `known_leverage_weight` /
+     `unknown_leverage_weight` u details.
+   - Consistency: positive-month ratio (isti broj kao profitable-month
+     ratio — §14 ga navodi u dve dimenzije), longest losing streak
+     (`longestNegativeStreak`, D-033: 0% prekida niz), disperzija i
+     zavisnost od najboljeg meseca (tačka 5), prinos bez najboljeg / tri
+     najbolja meseca (postojeći `ConsistencyCalculator`).
+   - Copyability (poslednji sačuvani snapshot kroz `BuildCopySimulationMatrix`,
+     M = $1, platformski minimum $200): coverage na $200/$500/$1,000 =
+     udeo pozitivne težine pozicija (D-022; udeo celog portfolija u
+     details), minimum za 90/95/99% i za sve vidljive pozicije (100%,
+     `informational`, §12.3) = effective minimum; broj i težina (udeo celog
+     portfolija) preskočenih pozicija po presetu. Van opsega →
+     `out_of_range` (D-043); bez pozitivne težine → `no_positive_weight`;
+     `is_estimate` → partial + `estimated_from_incomplete_snapshot`.
+     Privatan/nepronađen portfolio sa snapshot-om → vrednosti postoje, uz
+     `snapshot_no_longer_visible` na svakoj (D-045); bez snapshot-a →
+     `no_stored_snapshot`.
+   - Data quality: tačka 6.
+5. **Nove formule (čisti kalkulatori, BCMath scale 18, half-up na ppb tek
+   na kraju, samo ZAVRŠENI periodi — D-033):**
+   - **Disperzija mesečnih prinosa** (`ReturnDistributionCalculator`,
+     `return-distribution-v1`) = **interkvartilni raspon** IQR = Q(0.75) −
+     Q(0.25), kvantili linearnom interpolacijom (Hyndman–Fan tip 7):
+     sortirano x₀…xₙ₋₁, h = (n − 1)p, Q = x⌊h⌋ + (h − ⌊h⌋)(x⌊h⌋₊₁ − x⌊h⌋).
+     Najmanje 4 završena meseca. Izabran IQR, a ne standardna devijacija,
+     jer je ona već „volatility“ u Risk dimenziji — dve dimenzije ne treba
+     da pokazuju isti broj; IQR je robustan na jedan ekstreman mesec.
+     Q1/Q3 su u details.
+   - **Zavisnost od najboljeg meseca** = udeo najboljeg meseca u složenom
+     prinosu: (R − R₋best) / R, gde je R = Π(1+r) − 1 nad završenim
+     mesecima, a R₋best isto bez jednog najboljeg meseca. Definisano samo
+     za R > 0 (inače unavailable `non_positive_return`, a doprinos
+     R − R₋best u details i dalje postoji); može biti > 1 (ostali meseci
+     zajedno gube). Najmanje 2 meseca.
+6. **Operational/data quality:**
+   - **Last successful sync** = `traders.performance_synced_at` /
+     `portfolio_synced_at` (null → unavailable `never_synced`); **source
+     visibility** = `performance_visibility` / `portfolio_visibility`.
+   - **Prag zastarelosti: 48 h** (`BuildTraderComparison::STALE_AFTER_HOURS`),
+     isti za performance i portfolio; zastarelo strogo POSLE 48 h od
+     poslednjeg uspešnog sync-a (tačno 48 h je sveže), budući timestamp je
+     svež — ista konvencija kao `EvaluateTraderProfileFreshness`. Razlog:
+     performance se sinhronizuje dnevno u 03:00 UTC (D-034), pa 48 h toleriše
+     jedan propušten ciklus. Portfolio nema scheduler (D-038 t. 7), pa ručno
+     sinhronizovan portfolio stariji od 2 dana namerno postaje „stale“ —
+     to je tačno stanje, ne greška. `DataFreshness` po izvoru: `fresh` /
+     `stale` / `no_longer_visible` (private/not found, ima prednost — D-045) /
+     `never_synced`. **Stale-data warning** = bilo koji izvor nije `fresh`
+     (oba stanja u details); metrike tog izvora nose `performance_stale` /
+     `performance_no_longer_visible` / `snapshot_stale` /
+     `snapshot_no_longer_visible`.
+   - **Completeness score** (`DataCompletenessCalculator`,
+     `completeness-v1`) = broj `present` provera / broj **prikupljivih**
+     provera, **svaka prikupljiva provera težine 1**. Prikupljive (izvor
+     aplikacija prikuplja): profile (`EvaluateTraderProfileFreshness`,
+     24 h), ≥ 24 ZAVRŠENA mesečna perioda, dnevni podaci, live portfolio
+     (snapshot) — `present` samo ako je izvor svež, inače `stale`; bez
+     podatka `missing`. Asset history, exposure history, trade info i
+     copier history aplikacija ne prikuplja → **ne ulaze u imenilac**;
+     navedene su odvojeno kao „not supported by this application“ sa
+     razlogom `not_collected_by_application`
+     (`CompletenessUnsupportedReason`). To je ograničenje aplikacije, isto
+     za svakog tradera, a ne mana tradera: trader sa svim svežim
+     prikupljivim podacima ima **100%** (4/4). Details metrike:
+     `formula`, `present_count`, `collectable_count`, `total_count` (8),
+     `collectable_checks` (provera → stanje) i `not_supported_checks`
+     (provera → razlog). Kad aplikacija počne da prikuplja neki od ta
+     četiri izvora, on prelazi u prikupljive (promena imenioca = nova
+     verzija metodologije). Kalkulator traži da je svaka od 8 provera u
+     tačno jednoj od dve liste i bar jednu prikupljivu.
+   - **Failed endpoint count** = broj `failed` ImportRun-ova tipa
+     `performance` i `portfolio` sa `metadata.query.trader_id` = trader,
+     čiji je `started_at` u **poslednjih 7 dana** ([now − 7 d, now],
+     granice uključene). Details: po tipu, broj `partial` run-ova (npr.
+     nepotpuno obogaćivanje metapodataka) i ukupno run-ova u prozoru.
+     Profile lookup run-ovi su vezani za username, ne trader ID, i ne broje
+     se. Jedan performance sync = 2 run-a (monthly + daily, D-035).
+7. **Periodi posmatranja:** svaka metrika — i nedostupna — nosi
+   `ObservationPeriod`; `ComparisonMetric::$observation` nije nullable,
+   pa UI (Checkpoint C) prikazuje period svake vrednosti jednoobrazno
+   (`basis`: `return_series` — od/do = prvi/poslednji početak perioda,
+   uključivo, granularnost, broj tačaka, oznake partial/in-progress;
+   `portfolio_snapshot` — `captured_at` → `last_confirmed_at`;
+   `import_run_window`; `sync_record` — last successful sync i
+   visibility (stanje koje je taj sync video); `evaluated_at` — stale
+   warning, completeness i risk score (ne prikuplja se, ocenjen u
+   trenutku poređenja); **`no_data`** — eksplicitan prazan period kad
+   nema šta da se posmatra (nema serije, nema snapshot-a, nikad
+   sinhronizovano, nema nijednog završenog meseca): `from = null`,
+   `to` = trenutak poređenja, `pointCount = 0`). Rezultat poređenja
+   nosi `ComparisonPeriods`: za mesečnu i dnevnu seriju `SeriesAlignment`
+   (period svakog tradera, zajednički period = [najkasniji početak,
+   najraniji kraj] samo kad SVI imaju podatke i preklapaju se, `differs`
+   kad neko nema podatke ili prozori (od, do, broj tačaka) nisu
+   identični, spisak tradera bez podataka) i `SnapshotAlignment`
+   (najstariji/najnoviji `captured_at`, traderi bez snapshot-a).
+   `observationPeriodsDiffer()` je signal za UI upozorenje (§15). Metrike
+   se računaju nad celim periodom svakog tradera, ne nad zajedničkim —
+   zajednički period je informacija za prikaz.
+8. Rezultat nosi `methodologyVersion` `comparison-v1`, `generatedAt` i
+   pragove (`staleAfterHours`, `failedRunWindowDays`); promena mapiranja,
+   pragova ili definicija = nova verzija. Ništa se ne čuva.
+9. **Upiti i vreme:** poslednji snapshot tradera (pozicije + instrumenti)
+   čita se **jednom** — `BuildTraderPortfolioReport` prosleđuje učitane
+   pozicije `BuildPortfolioExposureReport::fromPositions()`, a poređenje ih
+   prosleđuje `BuildCopySimulationMatrix::handle(..., positions:)` →
+   `StoredPortfolioCoverageAdapter::toLivePortfolio($snapshot, $positions)`
+   (postojeći javni ulazi bez tog parametra rade kao ranije). Performance
+   tačke svih izabranih tradera čitaju se jednim upitom
+   (`BuildTraderPerformanceReport::handleMany()`; `handle()` sada čita obe
+   granularnosti jednim upitom umesto dva), ImportRun-ovi u prozoru jednim
+   upitom grupisanim po `metadata.query.trader_id`. Za 10 tradera sa
+   serijama, snapshot-om i instrumentima: **43 upita** (1 traderi + 1
+   tačke + 1 import run-ovi + 10 × 4: broj snapshot-a, poslednji snapshot,
+   pozicije, instrumenti), ranije 101 (test to ograničava). Pun batching
+   portfolija nije rađen (≤ 10 tradera, lična aplikacija). `now` se
+   normalizuje na UTC; završeni meseci zavise samo od UTC granice
+   (`synced_at` 23:59:59 UTC poslednjeg dana → mesec u toku; 00:00:00
+   UTC 1. → završen), a display timezone (Europe/Malta, D-046) ne utiče
+   ni na klasifikaciju, trailing metrike ni na prozor failed run-ova
+   (testovi).

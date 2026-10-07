@@ -10,13 +10,15 @@ use App\Analytics\Data\CopySimulationWarning;
 use App\Analytics\Data\CoverageTargetResult;
 use App\Analytics\Exceptions\CoverageCalculationException;
 use App\Analytics\ValueObjects\Money;
+use App\Models\PortfolioPosition;
 use App\Models\PortfolioSnapshot;
 use Closure;
 
 /**
  * The simulator's fixed matrix for a STORED snapshot: every
  * CopyAmountPreset and every CoverageTargetPreset (PROJECT.md Flow D,
- * §12.2/§12.3; docs/DECISIONS.md D-042). Reads the snapshot once, never
+ * §12.2/§12.3; docs/DECISIONS.md D-042). Reads the snapshot once (or not
+ * at all when the caller passes its loaded positions), never
  * calls the eToro API, persists nothing.
  */
 final class BuildCopySimulationMatrix
@@ -26,11 +28,15 @@ final class BuildCopySimulationMatrix
         private readonly CopySimulationCalculator $calculator,
     ) {}
 
-    public function handle(PortfolioSnapshot $snapshot, ?Money $minimumPositionAmount = null): CopySimulationMatrix
+    /**
+     * @param  list<PortfolioPosition>|null  $positions  the snapshot's positions when the caller already loaded them
+     *                                                   (snapshot order); null reads them
+     */
+    public function handle(PortfolioSnapshot $snapshot, ?Money $minimumPositionAmount = null, ?array $positions = null): CopySimulationMatrix
     {
         $minimumPositionAmount ??= CopySimulationSettings::defaultMinimumPositionAmount();
         $platformMinimumCopyAmount = CopySimulationSettings::platformMinimumCopyAmount();
-        $portfolio = $this->adapter->toLivePortfolio($snapshot);
+        $portfolio = $this->adapter->toLivePortfolio($snapshot, $positions);
 
         // A figure outside the representable money range (e.g. a huge
         // minimum position amount over a 1 ppb weight) becomes an explicit

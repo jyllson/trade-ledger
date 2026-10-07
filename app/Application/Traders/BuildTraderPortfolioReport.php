@@ -57,7 +57,7 @@ final class BuildTraderPortfolioReport
             storedSnapshotCount: $storedSnapshotCount,
             snapshot: $snapshot,
             positions: $positions,
-            exposure: $this->exposureReport->handle($snapshot),
+            exposure: $this->exposureReport->fromPositions($snapshot, $positions),
         );
     }
 }
