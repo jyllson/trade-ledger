@@ -41,24 +41,81 @@ final class BuildTraderPerformanceReport
 
     public function handle(Trader $trader): TraderPerformanceReport
     {
-        $key = $trader->id.'|'.($trader->performance_synced_at?->getTimestamp() ?? '-').'|'.($trader->performance_visibility->value ?? '-');
+        return $this->memo[$this->memoKey($trader)] ??= $this->report(
+            $trader,
+            $this->points([$trader->id])[$trader->id] ?? [],
+        );
+    }
 
-        return $this->memo[$key] ??= new TraderPerformanceReport(
-            monthly: $this->seriesReport($trader, ReturnPeriodGranularity::Monthly),
-            daily: $this->seriesReport($trader, ReturnPeriodGranularity::Daily),
+    /**
+     * The same report as handle() for several traders, with the stored
+     * points of all of them read in ONE query (trader comparison, D-047).
+     *
+     * @param  list<Trader>  $traders
+     * @return array<int, TraderPerformanceReport> keyed by trader id
+     */
+    public function handleMany(array $traders): array
+    {
+        $missing = array_values(array_filter($traders, fn (Trader $trader): bool => ! isset($this->memo[$this->memoKey($trader)])));
+        $points = $missing === [] ? [] : $this->points(array_map(static fn (Trader $trader): int => $trader->id, $missing));
+
+        $reports = [];
+
+        foreach ($traders as $trader) {
+            $reports[$trader->id] = $this->memo[$this->memoKey($trader)] ??= $this->report($trader, $points[$trader->id] ?? []);
+        }
+
+        return $reports;
+    }
+
+    private function memoKey(Trader $trader): string
+    {
+        return $trader->id.'|'.($trader->performance_synced_at?->getTimestamp() ?? '-').'|'.($trader->performance_visibility->value ?? '-');
+    }
+
+    /**
+     * @param  list<PerformancePoint>  $points  this trader's points, both granularities
+     */
+    private function report(Trader $trader, array $points): TraderPerformanceReport
+    {
+        return new TraderPerformanceReport(
+            monthly: $this->seriesReport(ReturnPeriodGranularity::Monthly, $points),
+            daily: $this->seriesReport(ReturnPeriodGranularity::Daily, $points),
             visibility: $trader->performance_visibility,
             lastSyncedAt: $trader->performance_synced_at?->toDateTimeImmutable(),
         );
     }
 
-    private function seriesReport(Trader $trader, ReturnPeriodGranularity $granularity): ?TraderPerformanceSeriesReport
+    /**
+     * Stored eToro gain points of the given traders, grouped by trader id,
+     * ordered by period start.
+     *
+     * @param  list<int>  $traderIds
+     * @return array<int, list<PerformancePoint>>
+     */
+    private function points(array $traderIds): array
     {
         $points = PerformancePoint::query()
-            ->where('trader_id', $trader->id)
-            ->where('granularity', $granularity->value)
+            ->whereIn('trader_id', $traderIds)
             ->where('source', PerformancePoint::SOURCE_ETORO_V2_GAIN)
             ->orderBy('period_start')
-            ->get(['period_start', 'gain_ppb', 'synced_at']);
+            ->get(['trader_id', 'granularity', 'period_start', 'gain_ppb', 'synced_at']);
+
+        $byTrader = [];
+
+        foreach ($points as $point) {
+            $byTrader[$point->trader_id][] = $point;
+        }
+
+        return $byTrader;
+    }
+
+    /**
+     * @param  list<PerformancePoint>  $traderPoints  ordered by period start
+     */
+    private function seriesReport(ReturnPeriodGranularity $granularity, array $traderPoints): ?TraderPerformanceSeriesReport
+    {
+        $points = collect($traderPoints)->filter(static fn (PerformancePoint $point): bool => $point->granularity === $granularity)->values();
 
         if ($points->isEmpty()) {
             return null;

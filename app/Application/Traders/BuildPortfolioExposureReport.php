@@ -35,10 +35,22 @@ final class BuildPortfolioExposureReport
 
     public function handle(PortfolioSnapshot $snapshot): PortfolioExposureReport
     {
-        $positions = $snapshot->positions()->with('instrument')->get();
+        /** @var list<PortfolioPosition> $positions */
+        $positions = array_values($snapshot->positions()->with('instrument')->get()->all());
 
+        return $this->fromPositions($snapshot, $positions);
+    }
+
+    /**
+     * Same as handle() for positions the caller already loaded (snapshot
+     * order, `instrument` eager loaded), so one snapshot is read once.
+     *
+     * @param  list<PortfolioPosition>  $positions
+     */
+    public function fromPositions(PortfolioSnapshot $snapshot, array $positions): PortfolioExposureReport
+    {
         $holdings = new PortfolioHoldings(
-            holdings: array_values($positions->map(fn (PortfolioPosition $position): PortfolioHolding => $this->holding($position))->all()),
+            holdings: array_map(fn (PortfolioPosition $position): PortfolioHolding => $this->holding($position), $positions),
             cashWeight: $snapshot->cash_weight_ppb === null ? null : Percentage::fromPartsPerBillion($snapshot->cash_weight_ppb),
             sectorClassificationAvailable: false,
         );

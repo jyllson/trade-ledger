@@ -12,11 +12,15 @@ drawdown, consistency, charts) is **COMPLETE** — merged via
 [PR #8](https://github.com/jyllson/trade-ledger/pull/8). Product
 Milestone 4 (live portfolio importer, instruments, portfolio snapshots,
 concentration/leverage exposure and the copy amount simulator) is
-**COMPLETE** on branch `codex/milestone-4-portfolio-simulator` (checkpoints
-A–F, pending its PR/merge into `main`). Per-milestone evidence and the
+**COMPLETE** — merged via
+[PR #10](https://github.com/jyllson/trade-ledger/pull/10). Product
+Milestone 5 (trader comparison: comparison page for 2–10 traders, analysis
+profiles with transparent filters, data-quality warnings, CSV export) is
+**COMPLETE** on branch `codex/milestone-5-trader-comparison` (checkpoints
+A–D, pending its PR/merge into `main`). Per-milestone evidence and the
 `PROJECT.md` §20 acceptance criteria are in `docs/REVIEW_STATUS.md`. The
-next product milestone per `PROJECT.md` §20 is Milestone 5 (trader
-comparison). The application contains no trading/write capability at any
+next product milestone per `PROJECT.md` §20 is Milestone 6 (own account
+tracking). The application contains no trading/write capability at any
 point.
 
 All timestamps are stored in UTC and shown in the UI in `Europe/Malta`
@@ -85,6 +89,27 @@ Visit `/admin` and sign in with the Filament user you just created.
   sync found the portfolio private / not found, the last known snapshot is
   still shown — with a prominent "may be outdated" warning on the
   portfolio section and the simulator (D-045).
+- `/admin/compare-traders` — Research → "Compare traders" (Milestone 5):
+  side-by-side comparison of 2–10 traders (open it from the "Compare" bulk
+  action on `/admin/traders` or add traders on the page; the selection
+  lives in the URL, `?traders=…&profile=…`). One table across the
+  independent §14 dimensions, each metric with its status
+  (available/partial/unavailable and why), a prominent warning listing
+  every trader's observation period when the periods differ, data-quality
+  warnings (stale data, private last known snapshot, failed syncs, missing
+  data, completeness), small equity charts and an "Export CSV" button
+  (machine-readable values, UTC ISO-8601 timestamps, spreadsheet-formula
+  injection neutralised). There is **no overall score, rank or winner**.
+  Rendering and export only read stored data — never eToro (D-047, D-049).
+- `/admin/analysis-profiles` — Settings → "Analysis profiles": budget,
+  target coverage and optional thresholds (max drawdown, max risk score,
+  max single position, minimum history months, minimum positive-month
+  ratio, max allocation per trader). On the comparison page every applied
+  criterion is shown per trader with its threshold, actual value and
+  outcome (pass/fail/unknown — missing or estimated data is unknown, never
+  pass); the per-trader summary is derived and unweighted, not a score.
+  Exactly one profile is the default (seeded by migration, cannot be
+  deleted; switch it with "Make default") (D-048).
 
 Several distinct surfaces can trigger a real eToro HTTP request — none of
 them by rendering a page, only by an explicit user action, and only when

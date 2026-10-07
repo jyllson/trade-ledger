@@ -2012,3 +2012,230 @@ sekcije renderovane, vremena u CEST. Artefakti u `/private/tmp/tl-qa-m4f/`.
 
 Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno;
 bez commit-a.
+
+## 2026-10-07 — Milestone 5, Checkpoint A: read model za poređenje tradera (D-047)
+
+### Urađeno
+
+- Grana `codex/milestone-5-trader-comparison` od `main` (7d020a5).
+- `App\Application\Traders\Comparison\BuildTraderComparison`: 2–10
+  različitih postojećih tradera (`TraderComparisonRejected` sa razlogom);
+  po traderu svih 40 §14 metrika kao `ComparisonMetric` (status
+  available/partial/unavailable + razlog, upozorenja, details, period
+  posmatranja), grupisano u pet dimenzija; bez ukupnog skora.
+  `ComparisonPeriods` (mesečno/dnevno poravnanje, zajednički period,
+  `differs`; raspon snapshot-a). Samo čitanje kroz postojeće read modele.
+- Novi čisti kalkulatori: `ReturnDistributionCalculator` (IQR mesečnih
+  prinosa, doprinos i udeo najboljeg meseca) i `DataCompletenessCalculator`
+  (`completeness-v1`, 8 provera §13.8, jednake težine).
+- Pragovi: stale > 48 h; failed endpoint prozor 7 dana; risk score =
+  nedostupan (izvor se ne prikuplja).
+- Testovi: unit za oba kalkulatora (ručni račun u komentarima); feature
+  `BuildTraderComparisonTest` (2 i 10 tradera, 0/1/11/duplikat/nepostojeći
+  odbijeni, bez performance podataka, bez snapshot-a, privatan portfolio sa
+  zastarelim snapshot-om, granica 48 h, različiti i isti periodi, failed
+  run prozor, nedeterminisan leverage, bez HTTP-a i bez upisa, bez skora).
+
+### Verifikacija
+
+- `php artisan test`: 1848 total, 1844 passed, 4 skipped, 1 poznato
+  nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno;
+bez commit-a (izmene ostavljene za review).
+
+## 2026-10-07 — Milestone 5, Checkpoint A: ispravke po review-u (D-047)
+
+### Urađeno
+
+- **Completeness:** score = `present` / prikupljive provere; četiri izvora
+  koje aplikacija ne prikuplja (asset/exposure history, trade info, copier
+  history) su odvojena lista „not supported“ sa razlogom
+  (`CompletenessUnsupportedReason::NotCollectedByApplication`) i ne ulaze u
+  imenilac. Trader sa svim svežim podacima = 100%. Details:
+  `collectable_checks`, `not_supported_checks`, `present_count`,
+  `collectable_count`, `total_count`, `formula`. `CompletenessState` više
+  nema `not_collected`.
+- **Periodi:** `ComparisonMetric::$observation` više nije nullable; nova
+  osnova `ObservationBasis::NoData` (eksplicitan prazan period u trenutku
+  poređenja); risk score = `evaluated_at`, visibility = `sync_record`
+  odgovarajućeg sync-a.
+- **Upiti:** snapshot sa pozicijama/instrumentima jednom po traderu
+  (`BuildPortfolioExposureReport::fromPositions()`, opcioni `positions` u
+  `BuildCopySimulationMatrix::handle()` i
+  `StoredPortfolioCoverageAdapter::toLivePortfolio()`); performance tačke
+  svih tradera jednim upitom (`BuildTraderPerformanceReport::handleMany()`),
+  ImportRun-ovi jednim upitom. 10 tradera: 101 → 43 upita.
+- `now` se normalizuje na UTC (ranije bi `now` u Malta zoni pomerio prozor
+  failed run-ova jer se poredi sa UTC kolonom).
+- Testovi: completeness (unit prepisan; feature 100% / 75% / 0%), sve
+  metrike svih dimenzija imaju period (5 profila tradera), broj upita za
+  10 tradera, obe strane UTC granice meseca, Europe/Malta ne menja
+  rezultat.
+
+### Verifikacija
+
+- `php artisan test`: 1854 total, 1850 passed, 4 skipped, 1 poznato
+  nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno;
+bez commit-a.
+
+## 2026-10-07 — Milestone 5, Checkpoint B: analysis profile i transparentni filteri (D-048)
+
+### Urađeno
+
+- Migracija `analysis_profiles` (centi / ppb; unique `name`; najviše jedan
+  default preko generisane `default_marker` kolone sa unique indeksom),
+  model `AnalysisProfile` (`is_default` nije fillable, default se ne briše,
+  `toCriteria()`), factory (`asDefault`). `php artisan migrate` nad
+  `trade_ledger` urađen.
+- `App\Application\AnalysisProfiles`: `AnalysisProfileCriteria` (čist DTO sa
+  granicama, ugrađeni default $500 / 95%), `AnalysisProfileSettings`,
+  `AnalysisProfileInput` (tačna konverzija USD/procenata),
+  `ResolveDefaultAnalysisProfile` (samo čitanje),
+  `EnsureDefaultAnalysisProfile`, `MakeAnalysisProfileDefault` (atomsko
+  prebacivanje).
+- `EvaluateProfileFilters` (čist) + `ProfileCriterion`, `CriterionOutcome`,
+  `CriterionResult`, `CriterionUnknownReason`, `ProfileFilterResult`,
+  `ProfileFilterVerdict`: po kriterijumu pass / fail / unknown /
+  not_applied / informational, bez skora.
+- `BuildTraderComparison` prima opcioni profil (default inače), dodaje 4
+  copyability metrike na budžetu/targetu profila preko nove
+  `BuildCopySimulationMatrix::simulateAmount()` i `profileFilters` po
+  traderu; `comparison-v2`.
+- Filament `AnalysisProfileResource` (lista, create, edit, „Make default“,
+  brisanje samo ne-default).
+- `copy_simulations.analysis_profile_id` namerno nije dodat (D-048 t. 5).
+
+### Verifikacija
+
+- `php artisan test`: 1938 total, 1934 passed, 4 skipped, 1 poznato
+  nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno
+(jedina provera na dev bazi u transakciji koja je vraćena); bez commit-a.
+
+## 2026-10-07 — Milestone 5, Checkpoint B: ispravke posle review-a (D-048)
+
+### Urađeno
+
+- Brisanje profila kroz novi `DeleteAnalysisProfiles`: transakcija,
+  `lockForUpdate` nad svim redovima, provera AKTUELNOG default-a
+  neposredno pre DELETE-a, DELETE isključuje default; sve ili ništa.
+  Filament pojedinačno brisanje (red, edit stranica) i novi bulk delete
+  idu kroz njega. Model `deleting` čita sačuvani flag, ne učitani.
+- `EvaluateProfileFilters`: „bez pozitivne težine“ je `fail` samo za
+  kompletan snapshot; uz `estimated_from_incomplete_snapshot` → `unknown`
+  (`metric_partial`). Ostali kriterijumi provereni — isti obrazac ne postoji.
+- Default profil upisuje nova migracija
+  `2026_10_07_100100_seed_default_analysis_profile` (idempotentna); lista
+  profila više ne piše u bazu (uklonjen `EnsureDefaultAnalysisProfile`
+  poziv iz `ListAnalysisProfiles`). `php artisan migrate` nad
+  `trade_ledger` urađen (postojeći default zadržan, tačno jedan default).
+- Testovi: interleaving brisanja (servis, model, Filament), bulk sve ili
+  ništa, integracioni test fail/unknown za NoPositiveWeight kroz
+  `BuildTraderComparison`, migracija (tačno jedan default, idempotentnost,
+  promocija najstarijeg), GET liste bez upisa. Helper
+  `withoutStoredAnalysisProfiles()` za testove koji kreću od prazne tabele.
+
+### Otvoreno
+
+- `EnsureDefaultAnalysisProfile` više nema poziva — predlog za uklanjanje
+  (brisanje fajla čeka odobrenje).
+
+### Verifikacija
+
+- `php artisan test`: 1947 total, 1943 passed, 4 skipped, 1 poznato
+  nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+
+### Bezbednost
+
+Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno;
+bez commit-a.
+
+## 2026-10-07 — Milestone 5, Checkpoint C: stranica za poređenje (D-049)
+
+### Urađeno
+
+- `App\Filament\Pages\CompareTraders` (Research → „Compare traders“):
+  izbor u URL-u (`?traders=…&profile=…`), validacija istim razlozima kao
+  read model + sintaksa ID-jeva, čipovi sa uklanjanjem, „Add trader“,
+  „Clear selection“, izbor profila (default unapred), upozorenja o
+  periodima i kvalitetu podataka, jedna tabela po §14 dimenzijama, sekcija
+  filtera profila sa pragovima i izvedenim sažetkom (ne skor), mali
+  equity grafici po traderu, „Export CSV“.
+- Bulk akcija „Compare“ na Traders tabeli (2–10, inače poruka bez
+  navigacije).
+- `TraderComparisonCsv` (mašinski čitljiv CSV, UTC ISO-8601, zaštita od
+  CSV injection-a); `ComparisonDisplay` (formatiranje);
+  `TraderComparisonEquityChart`; `label()` na enum-ima poređenja.
+- Testovi: `tests/Feature/Filament/Pages/CompareTradersTest.php` (23).
+
+### Vizuelni QA
+
+Headless Chrome (CDP, isti skript kao M4, bez paketa) nad izolovanom
+sintetičkom SQLite bazom `/private/tmp/tl-qa-m5c/qa.sqlite` (env varijable
+procesa; `.env` nije čitan ni menjan; dev baza nije dirana): 4 tradera
+različitih perioda, jedan privatan sa zastarelim snapshot-om i failed
+run-ovima, jedan bez podataka. Light, dark, dark sa drugim profilom,
+prazno stanje, nevalidan URL. Nalazi: grafici su zauzimali ceo red
+(ispravljeno `columnSpan = 1`), snapshot period ponavljan u svakoj
+copyability ćeliji (sada samo tooltip + tabela perioda). Artefakti u
+`/private/tmp/tl-qa-m5c/`.
+
+### Verifikacija
+
+- `php artisan test --compact`: 1970 total, 1966 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `vendor/bin/pint --test`: passed. `composer types:check`: 0 errors.
+  Frontend asseti nisu menjani (`npm run build` nije potreban).
+
+### Bezbednost
+
+Bez `.env`; bez novih paketa; bez live eToro poziva; ništa destruktivno;
+bez commit-a.
+
+## 2026-10-07 — Milestone 5, Checkpoint D: zatvaranje (dokumentacija)
+
+### Urađeno
+
+- `README.md`: Status (M4 merge-ovan kroz PR #10; M5 complete na grani
+  `codex/milestone-5-trader-comparison`; sledi M6), nova UI mesta
+  `/admin/compare-traders` (bulk „Compare“, URL izbor, upozorenja, CSV
+  export, bez skora) i `/admin/analysis-profiles` (filteri pass/fail/
+  unknown, netežinski sažetak, default profil).
+- `docs/REVIEW_STATUS.md`: novi vrh — M5 zapis (checkpoint-i A `5264be9`,
+  B `0ed565d`, C `df6d388`, D), §20 M5 acceptance sa dokazima (testovi +
+  vizuelni QA `/private/tmp/tl-qa-m5c/`), review runde, live provera;
+  M4 zapis premešten u istoriju uz PR #10.
+
+### Live provera (pre ovog checkpoint-a, 2026-10-07)
+
+Sync performansi za 3 tradera (6 read-only GET poziva, zabeleženo u
+privatnom ledger-u); poređenje 3 tradera bez grešaka — trader sa
+portfolijem 43/44 metrika dostupno, traderi bez portfolija sa
+copyability/risk koncentracijom eksplicitno `unavailable`. Bez
+username-ova i vrednosti u dokumentaciji.
+
+### Verifikacija
+
+- `git diff --check`: čist.
+- `vendor/bin/pint --test`: passed.
+- `php artisan test --compact`: 1970 total, 1966 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+
+### Bezbednost
+
+Samo dokumentacija; bez izmena koda; bez `.env`; bez novih paketa; bez
+live eToro poziva; bez commit-a.

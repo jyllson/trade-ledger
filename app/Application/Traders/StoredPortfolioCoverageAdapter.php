@@ -32,11 +32,17 @@ final class StoredPortfolioCoverageAdapter
 {
     public function __construct(private readonly LivePortfolioCoverageAdapter $liveAdapter) {}
 
-    public function toLivePortfolio(PortfolioSnapshot $snapshot): LivePortfolio
+    /**
+     * @param  list<PortfolioPosition>|null  $positions  the snapshot's positions in `position_index` order when the
+     *                                                   caller already loaded them; null reads them
+     */
+    public function toLivePortfolio(PortfolioSnapshot $snapshot, ?array $positions = null): LivePortfolio
     {
+        $positions ??= array_values($snapshot->positions()->get()->all());
+
         return new LivePortfolio(
-            positions: array_values($snapshot->positions()->get()->map(
-                fn (PortfolioPosition $position): LivePortfolioPosition => new LivePortfolioPosition(
+            positions: array_map(
+                static fn (PortfolioPosition $position): LivePortfolioPosition => new LivePortfolioPosition(
                     positionId: $position->external_position_id,
                     instrumentId: $position->external_instrument_id,
                     weight: Percentage::fromPartsPerBillion($position->weight_ppb),
@@ -45,7 +51,8 @@ final class StoredPortfolioCoverageAdapter
                     leverage: $position->leverage,
                     trailingStopLoss: $position->trailing_stop_loss,
                 ),
-            )->all()),
+                $positions,
+            ),
             socialTradesCount: $snapshot->social_trades_count,
             cashWeight: $snapshot->cash_weight_ppb === null ? null : Percentage::fromPartsPerBillion($snapshot->cash_weight_ppb),
         );

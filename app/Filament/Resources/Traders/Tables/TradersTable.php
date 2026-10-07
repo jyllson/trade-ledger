@@ -5,15 +5,18 @@ declare(strict_types=1);
 namespace App\Filament\Resources\Traders\Tables;
 
 use App\Application\Traders\ChangeTraderStatus;
+use App\Application\Traders\Comparison\BuildTraderComparison;
 use App\Application\Traders\EvaluateTraderProfileFreshness;
 use App\Application\Traders\LookupEtoroTraderProfile;
 use App\Application\Traders\LookupEtoroTraderProfileStopReason;
 use App\Application\Traders\ProfileFreshness;
 use App\Application\Traders\TraderUsername;
+use App\Filament\Pages\CompareTraders;
 use App\Filament\Resources\ImportRuns\ImportRunResource;
 use App\Models\Trader;
 use App\Models\TraderStatus;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
@@ -21,6 +24,7 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Collection;
 use Throwable;
 
 /**
@@ -108,9 +112,41 @@ class TradersTable
                     ->modalDescription('The trader will be marked Ignored locally. This does not affect eToro in any way and can be reversed at any time.'),
                 self::lookupProfileAction(),
             ])
+            ->toolbarActions([
+                self::compareBulkAction(),
+            ])
             ->emptyStateHeading('No traders imported yet')
             ->emptyStateDescription('Run Discover Traders to import eToro ranking pages.')
             ->emptyStateIcon(Heroicon::OutlinedUserGroup);
+    }
+
+    /**
+     * Opens the Compare traders page for 2–10 selected traders (PROJECT.md
+     * Flow E; D-049). Outside that range nothing navigates — the user gets
+     * a message and keeps the selection. Ids go into the URL in ascending
+     * order (deterministic, shareable). Read-only: writes nothing.
+     */
+    private static function compareBulkAction(): BulkAction
+    {
+        return BulkAction::make('compare')
+            ->label('Compare')
+            ->icon(Heroicon::OutlinedArrowsRightLeft)
+            ->color('gray')
+            ->action(function (Collection $records, BulkAction $action): void {
+                $count = $records->count();
+
+                if ($count < BuildTraderComparison::MINIMUM_TRADERS || $count > BuildTraderComparison::MAXIMUM_TRADERS) {
+                    Notification::make()
+                        ->title(sprintf('Select between %d and %d traders to compare.', BuildTraderComparison::MINIMUM_TRADERS, BuildTraderComparison::MAXIMUM_TRADERS))
+                        ->body(sprintf('%d %s selected.', $count, $count === 1 ? 'trader is' : 'traders are'))
+                        ->warning()
+                        ->send();
+
+                    $action->halt();
+                }
+
+                $action->redirect(CompareTraders::urlFor(array_values($records->map(static fn (Trader $trader): int => $trader->id)->sort()->all())));
+            });
     }
 
     private static function changeStatusAction(TraderStatus $target, string $name, string $label, Heroicon $icon, string $color): Action
