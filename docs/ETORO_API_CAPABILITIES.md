@@ -342,3 +342,35 @@ jeste idempotency ključ; iznos ≠ 0 (pozitivan dodaje, negativan povlači).
 Nejasno: tačna dozvola ključa za `x-api-key`/`x-user-key` par (OAuth
 scope-ovi `etoro-public:demo:write` ili `etoro-public:trade.demo:write`),
 minimalni iznos, vreme asinhrone obrade (vidi D-050 „Otvoreno“).
+
+### Live zapažanja 2026-10-08 (vlasnik; M6-B dijagnoza)
+
+- `POST /api/v2/trading/copy/demo/eligibility`: 6 poziva (3 tradera +
+  smart portfolio; iznosi $200–$25,000) — svi HTTP 200, `isSuccess=false`,
+  `errorCode 972`, bez `errorMessage`. Ključ ima dozvolu (nije 401/403).
+  Kod 972 **nije dokumentovan** („opaque diagnostic data“); eToro web UI
+  za isti nalog kaže da copy traži minimalni depozit (~20K EUR) na real
+  nalogu — to je tumačenje iz web UI-ja, ne odgovor API-ja
+  (`docs/DECISIONS.md` D-050 dopuna, D-051 t. 9).
+- `GET /api/v1/trading/info/demo/pnl`: HTTP 200, ista 13 `clientPortfolio`
+  ključa kao u Run #1; nalog bez pozicija i bez mirrors.
+
+---
+
+## Own account P&L — šema za M6-A (2026-10-08)
+
+Posmatrano live: samo top-level `clientPortfolio` ključevi (iznad), na
+praznom nalogu. Unutrašnja šema pozicija / mirror-a / ordera preuzeta je
+iz zvaničnog OpenAPI v1.387.0 (`PortfolioResponseWithPnl`) i **nije live
+verifikovana**. Dokumentacija je nekonzistentna u nazivima ključeva (šema
+`positionID`/`CID`/`parentCID` i ugnežđen `unrealizedPnL.pnL`; primer
+`positionId`/`cid`/`parentCid` i ravan `pnL`) — mapper prihvata obe
+varijante (D-051 t. 2). Equity i total invested po vodičima „Calculate
+Equity“ / „Calculate Total Invested“ (D-051 t. 4). Deljena kvota 60/60 s
+sa `/api/v1/trading/info/demo/portfolio` i
+`/api/v2/trading/info/demo/instrument-breakdown`.
+
+| Sposobnost | Metod | Path | Status |
+|---|---|---|---|
+| Demo account P&L | GET | `/api/v1/trading/info/demo/pnl` | works (prazan nalog); pozicije/mirrors documented, not live-verified |
+| Real account P&L | GET | `/api/v1/trading/info/real/pnl` | works (M1); sync **onemogućen u kodu** do prihvatanja Demo-a |

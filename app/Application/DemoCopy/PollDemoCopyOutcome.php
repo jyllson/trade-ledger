@@ -88,7 +88,7 @@ final class PollDemoCopyOutcome
 
         $failReason = $response->payload['failReason'] ?? null;
         $errorCode = $response->payload['errorMessageCode'] ?? null;
-        $reason = 'eToro: operation failed'.(is_string($failReason) && trim($failReason) !== '' ? ' — '.$failReason : ' (no reason given)').'.';
+        $reason = DemoCopyErrorReason::describe('eToro: operation failed', 'errorMessageCode', $errorCode, $failReason);
 
         $this->ledger->finish($poll, DemoCopyOperationStatus::Failed, $response, $reason);
         $this->ledger->finish($registration, DemoCopyOperationStatus::Failed, reason: $reason, attributes: [

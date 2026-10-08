@@ -2722,3 +2722,153 @@ DELETE close binding.
 zahteva posebnu potvrdu vlasnika posle review-a, uključivanje flag-a u
 `.env` (radi vlasnik) i ključ sa demo write dozvolom; do tada je sve
 dokazano samo `Http::fake()` testovima.
+
+**Dopuna 2026-10-08 (M6 Checkpoint A, live nalaz vlasnika):** pre-check je
+za sve tradere i iznose (uklj. smart portfolio i $25,000) vratio HTTP 200,
+`isSuccess=false`, `errorCode 972`, bez `errorMessage`. Kod nije
+dokumentovan; eToro web UI za isti nalog navodi minimalni depozit (~20K
+EUR) na real nalogu kao uslov za copy. Vlasnik je odlučio: ostaje praćenje
+bez kopiranja, demo copy kod ostaje spreman i nepromenjen (guard, flag,
+tok). Razlog odbijanja sada gradi `DemoCopyErrorReason` (D-051 t. 9):
+poruka + kod kad postoje, sam kod kad poruke nema, „no reason given“ samo
+kad nema ni jednog; za 972 dodaje se jasno označeno tumačenje iz web
+UI-ja, odvojeno od činjenice (koda). Isto važi za `errorMessageCode` /
+`failReason` poll-a.
+
+## D-051: Praćenje sopstvenog DEMO naloga (read-only) i prepoznavanje koda 972
+
+**Datum:** 2026-10-08
+**Status:** usvojeno (Milestone 6, Checkpoint A, grana
+`codex/milestone-6-demo-copy`; bez live poziva — live provera je korak
+vlasnika posle review-a)
+
+**Kontekst:** PROJECT.md §8 (Own account P&L), §11, §16, §20 M6 („Demo
+P&L import first; balance/equity/positions/copies snapshots“; „Real
+account read access is enabled only after Demo acceptance“). Live je
+posmatrano samo `clientPortfolio` sa 13 ključeva (Run #1 i 2026-10-08) na
+nalogu bez pozicija, copy-jeva i ordera — unutrašnja šema pozicija i
+mirror-a **nije** posmatrana. Izvor za nju: zvanični OpenAPI v1.387.0
+(`getTradingInfoDemoPnl`, šeme `ClientPortfolio`,
+`TradingRealAdminApi_Position`, `Mirror`) i vodiči „Calculate Equity“ /
+„Calculate Total Invested“ (api-portal.etoro.com, pročitani 2026-10-08),
+tretirani kao podatak.
+
+**Odluka:**
+
+1. **Mapper (`App\Etoro\Mappers\AccountPnlMapper`, čist PHP):** obavezno
+   `clientPortfolio` (objekat), `credit`, `unrealizedPnL` (broj),
+   `positions`, `mirrors` (liste); u poziciji `positionID`, `instrumentID`,
+   `isBuy`, `amount`; u mirror-u `mirrorID`, `parentCID`. Nedostaje
+   obavezno ili pogrešan tip → `EtoroMappingException` (strukturna
+   dijagnoza bez vrednosti, D-044) → ImportRun `mapping_failed` sa
+   `metadata.mapping_error`. Opciona polja: odsutno = nepoznato (null),
+   nikad 0. Nepoznati ključevi se ignorišu; nepoznati ključevi
+   `clientPortfolio`-a se beleže **samo po imenu** (`[A-Za-z0-9_]`, ≤ 20) u
+   `metadata.unmodeled_fields`. Orderi (7 lista) se samo broje.
+2. **Nekonzistentna dokumentacija:** šema koristi `positionID`, `CID`,
+   `instrumentID`, `mirrorID`, `parentCID`, `mirrorStatusID` i ugnežđen
+   nullable `unrealizedPnL.pnL`; primer iz iste dokumentacije koristi
+   `positionId`, `cid`, `instrumentId`, `mirrorId`, `parentCid` i ravan
+   `pnL`; vodič za equity koristi `mirrorID` za `ordersForOpen` dok šema
+   kaže `mirrorId`. Mapper prihvata **obe dokumentovane varijante**; ako
+   su obe prisutne sa različitim vrednostima → `invalid_value`. Isto važi
+   i za ugnežđen `unrealizedPnL.pnL` naspram ravnog `pnL` pozicije i za
+   `mirrorID` / `mirrorId` u `ordersForOpen` (od njega zavisi da li order
+   ulazi u invested/equity): konflikt → `mapping_failed` sa putanjom polja,
+   bez vrednosti; saglasne duple vrednosti su u redu. Nijedan alias se ne
+   razrešava sa `??` bez provere konflikta. Prisustvo se prati po ključu
+   (`array_key_exists`): eksplicitan `null` pored ne-null varijante je
+   konflikt (u oba redosleda; `unrealizedPnL: null` = eksplicitno null
+   ugnežđeno `pnL`); obe null = kao jedna null (opciono → null, obavezno
+   → `missing_required_field`). Ne-null vrednosti se porede **posle**
+   parsera tog polja: sentinel `mirrorID` `0` i `"0"` su saglasni, ID `5` i
+   `"5"` takođe, P&L `12` i `12.0` takođe; `mirrorID` u `ordersForOpen`
+   prihvata samo int, pa je `0` pored `"0"` konflikt. Sentinel
+   „0 otherwise“ za `mirrorID` / `parentPositionID` = nije u mirror-u
+   (null). Prvi live uzorak sa pozicijama/copy-jem treba da potvrdi
+   varijantu.
+3. **Novac:** integer USD centi (kao D-042), half away from zero nad
+   decimalom koju je API poslao (`DecimalAmount`: najkraći round-trip
+   zapis float-a, pa BCMath) — `1.005` → 101, ne 100. Units / open rate:
+   `DECIMAL(30,10)` string (kao D-038 rate-ovi). ppb se ne koristi — ovde
+   nema težina.
+4. **Equity i invested (dokumentovano, ne izmišljeno):** formula iz
+   vodiča, u `App\Application\Account\AccountValuation`:
+   available cash = credit − (Σ `ordersForOpen.amount` gde mirrorID = 0 +
+   Σ `orders.amount`); total invested = Σ pozicija.amount + Σ mirror
+   pozicija.amount + Σ(`availableAmount` − `closedPositionsNetProfit`) +
+   ista dva order zbira + Σ `ordersForOpen.totalExternalCosts` (mirrorID =
+   0); unrealized = Σ pozicija P&L + Σ mirror pozicija P&L + Σ
+   `closedPositionsNetProfit`; equity = zbir tri. Ako bilo koji član
+   nedostaje: `invested_cents` / `equity_cents` = null +
+   `equity_unavailable_reason` (`pending_orders_unknown`,
+   `mirror_fields_missing`, `position_pnl_missing`; za poslednji invested
+   ostaje). Top-level `unrealizedPnL` se čuva kakav je stigao — vodičev
+   „unrealized“ (sa `closedPositionsNetProfit`) nije isto polje. Za prazan
+   nalog equity = credit. Vodič navodi „Equity only refers to your USD
+   balance“; `accountCurrencyId` se čuva.
+5. **Persistence:** `account_snapshots` (environment, `captured_at`,
+   `last_confirmed_at`, credit, unrealized, bonus, currency id, invested,
+   equity + razlog, brojevi pozicija/mirror-a/mirror pozicija/ordera,
+   `source_hash`), `account_mirrors` (indeks, mirror id, `parent_cid`,
+   `parent_username`, initial/deposit/withdrawal/available/closed profit,
+   Σ uloženo i Σ P&L njegovih pozicija — null ako nepoznato, start,
+   pauza, status), `account_positions` (jedan ordinal kroz snapshot:
+   top-level pa pozicije po mirror-u; `account_mirror_id` samo za
+   ugnežđene; instrument FK kao D-038; smer, iznos, initial, units, open
+   rate/time, leverage, P&L). Bez sirovog payload-a (D-017). Idempotentno
+   kao D-038: isti sha256 normalizovanog sadržaja (`account-v1`) samo
+   pomera `last_confirmed_at`; upis pod `Cache::lock` po okruženju i u
+   transakciji. Veza mirror ↔ trader: `AccountMirror::trader()` je
+   `belongsTo` preko `parent_cid` = `traders.external_cid` (bez FK —
+   trader možda nikad nije importovan; veza se pojavljuje čim jeste).
+6. **REAL blokiran u kodu:** `AccountSyncEnvironment::ENABLED = [Demo]`,
+   bez config flag-a. `SyncEtoroAccount`, `QueueEtoroAccountSync` i
+   `etoro:sync-account --real` odbijaju Real **pre** ImportRun-a i HTTP
+   zahteva (`AccountSyncNotEnabled`; testovi dokazuju
+   `Http::assertNothingSent()`). Otvaranje Real-a je izmena koda posle
+   prihvatanja Demo-a. Enum i URL (`accountPnl(Real)`) ostaju podržani.
+7. **Sync (obrazac D-034/D-038–D-040):** ImportRun tip `account`
+   (`metadata.query.environment`), jedan ImportRun po pozivu pre zahteva;
+   `SyncEtoroAccountJob` unique po okruženju, bez job-level limiter-a
+   (per-attempt throttle D-039), release samo za
+   `temporarily_unavailable` uz `Retry-After`, `timeout` 80 s (<
+   `retry_after` 90 s; jedan Real P&L poziv je u M1 trajao ~22 s),
+   `failOnTimeout`, `failed()` zatvara `running` run po
+   `queue_job_uuid`. 401/403 → `not_authorized`, 404/400 →
+   `request_failed`. Komanda `etoro:sync-account --demo [--now]` (ne
+   štampa iznose ni identitete). Best-effort obogaćivanje instrumenata
+   kao D-038.
+8. **Scheduler:** dnevno 03:30 UTC (`withoutOverlapping`), posle
+   performansi (03:00). §16 predviđa „Hourly“, ali: istorija equity-ja se
+   čita po danu, nalog je demo, svaki poziv troši deljenu kvotu (60/60 s)
+   i ništa ne zavisi od svežine u toku dana; ručni sync je na dugmetu.
+   Prelazak na hourly je izmena jedne linije kad bude potreban.
+9. **Kod 972 / errorCode bez poruke (`DemoCopyErrorReason`):** poruka
+   eToro-a + kod; samo kod → „eToro refused the copy (errorCode N).“ +
+   „eToro gave no message, and the code is not documented.“; za 972
+   umesto toga označeno tumačenje: „eToro's web app reports this account
+   does not meet the minimum deposit requirement for copy trading
+   (interpretation from the eToro web app, observed 2026-10-08 — not
+   returned by the API).“ Činjenica (kod) i tumačenje (web UI) su
+   odvojeni u tekstu. Razlog i dalje prolazi kroz sanitizer (D-050).
+10. **UI:** stranica „My demo account“ (grupa „Demo trading“): napomena
+    „DEMO account — virtual money“, poslednji snapshot (credit, invested,
+    unrealized, equity ili razlog zašto ga nema, vreme snimanja i
+    potvrde), tabela pozicija (simbol ako je instrument obogaćen; izvor
+    „Manual“ / „Copy of …“), tabela copy-jeva sa linkom na tradera kad
+    postoji, istorija (20 redova) i grafik credit/equity (≥ 2 snapshot-a,
+    ≤ 90 tačaka, praznina gde equity nije izračunljiv), poslednji pokušaj
+    sync-a, prazna stanja, akcija „Sync demo account“. Vremena
+    Europe/Malta (D-046). Prikaz nikad ne zove eToro.
+
+**Odbačeno:** sopstvena formula za equity (credit + uloženo +
+`unrealizedPnL`) — vodič je drugačiji, a izmišljena formula bi dala
+pogrešan broj čim postoji order ili copy; čuvanje sirovog payload-a;
+config flag za Real; FK `trader_id` na mirror-u (zastareo bi kad se
+trader importuje posle).
+
+**Otvoreno:** stvarna varijanta ključeva i oblik `unrealizedPnL` unutar
+pozicije (prvi live uzorak sa pozicijom/copy-jem); poređenje predviđene
+fidelity i stvarnog rezultata kopije (§20 M6) — zahteva stvarnu kopiju,
+koja je trenutno blokirana kodom 972.

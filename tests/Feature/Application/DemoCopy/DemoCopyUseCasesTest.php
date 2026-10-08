@@ -108,7 +108,7 @@ it('records a pre-check rejection with eToro\'s reason, and the rejected pre-che
 
     expect($preCheck->status)->toBe(DemoCopyOperationStatus::Rejected)
         ->and($preCheck->error_code)->toBe('42')
-        ->and($preCheck->reason)->toBe('eToro: Copy limit reached');
+        ->and($preCheck->reason)->toBe('eToro refused the copy — Copy limit reached (errorCode 42).');
 
     expect(fn () => app(StartDemoCopy::class)->handle($preCheck, $this->user->id, confirmed: true))
         ->toThrow(DemoCopyRefused::class, 'successful eToro pre-check is required');
@@ -123,6 +123,41 @@ it('records a pre-check without a reason as rejected, never as allowed', functio
 
     expect($preCheck->status)->toBe(DemoCopyOperationStatus::Rejected)
         ->and($preCheck->reason)->toContain('no reason given');
+});
+
+it('names errorCode 972 and separates the fact from the web-app interpretation', function () {
+    fakeEligibility(['CID' => 4441234, 'parentCID' => 5551234, 'isSuccess' => false, 'errorCode' => 972]);
+
+    $preCheck = app(PreCheckDemoCopy::class)->handle($this->trader, 50_000, DemoCopyOperationType::Start, $this->user->id);
+
+    expect($preCheck->status)->toBe(DemoCopyOperationStatus::Rejected)
+        ->and($preCheck->error_code)->toBe('972')
+        ->and($preCheck->reason)->toStartWith('eToro refused the copy (errorCode 972). ')
+        ->and($preCheck->reason)->toContain("eToro's web app reports this account does not meet the minimum deposit requirement for copy trading")
+        ->and($preCheck->reason)->toContain('not returned by the API')
+        ->and($preCheck->reason)->not->toContain('no reason given');
+});
+
+it('shows an undocumented errorCode without a message as the code itself', function () {
+    fakeEligibility(['CID' => 4441234, 'parentCID' => 5551234, 'isSuccess' => false, 'errorCode' => 123, 'errorMessage' => null]);
+
+    $preCheck = app(PreCheckDemoCopy::class)->handle($this->trader, 50_000, DemoCopyOperationType::Start, $this->user->id);
+
+    expect($preCheck->reason)->toBe('eToro refused the copy (errorCode 123). eToro gave no message, and the code is not documented.');
+});
+
+it('names the errorMessageCode of a failed outcome without a failReason', function () {
+    $start = DemoCopyOperation::factory()->create([
+        'trader_id' => $this->trader->id,
+        'status' => DemoCopyOperationStatus::Accepted,
+        'reference_id' => 'tl-coded-ref',
+    ]);
+    Http::fake(['*' => Http::response(['referenceID' => 'tl-coded-ref', 'isSuccess' => false, 'errorMessageCode' => 972], 200)]);
+
+    app(PollDemoCopyOutcome::class)->handle($start);
+
+    expect($start->refresh()->reason)->toStartWith('eToro: operation failed (errorMessageCode 972). ')
+        ->and($start->error_code)->toBe('972');
 });
 
 it('records a 400 pre-check as rejected and a 500 as unknown', function (int $status, DemoCopyOperationStatus $expected) {
@@ -352,7 +387,7 @@ it('redacts a configured key sent alone as the pre-check errorMessage', function
 
     $operation = app(PreCheckDemoCopy::class)->handle($this->trader, 50_000, DemoCopyOperationType::Start, $this->user->id);
 
-    expect($operation->reason)->toBe('eToro: [redacted]')
+    expect($operation->reason)->toBe('eToro refused the copy — [redacted].')
         ->and($operation->response['errorMessage'])->toBe('[redacted]');
 });
 

@@ -106,3 +106,15 @@ eligibility boundary, not just clearly-above/clearly-below cases.
 - Never add `x-api-key`, `x-user-key`, or any other credential value here.
 - Only synthetic `https://example.invalid/...` URLs belong in these
   fixtures — never a real eToro or third-party URL.
+- `account-pnl-empty.json` — synthetic own-account P&L
+  (`GET /api/v1/trading/info/{demo|real}/pnl`) with no positions, copies
+  or orders: exactly the 13 `clientPortfolio` keys observed live
+  (Milestone 1 and 2026-10-08); the credit value is hand-authored.
+- `account-pnl.json` — synthetic own-account P&L with 2 manual positions,
+  1 copy (mirror) holding 2 positions, 1 pending order, 2 `ordersForOpen`
+  (one manual, one inside the copy) and one unknown key. Inner position /
+  mirror fields follow the official OpenAPI v1.387.0 schema (schema
+  casing, nested `unrealizedPnL.pnL`) — they have **not** been observed
+  live, because the demo account had no positions or copies
+  (`docs/DECISIONS.md` D-051). Expected guide values: invested $4,302.00,
+  equity $9,175.75.

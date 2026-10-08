@@ -2390,3 +2390,85 @@ git diff --check
 
 Nijedan live eToro poziv; `.env` nije čitan ni menjan; bez paketa; ništa
 destruktivno; bez commit-a.
+
+## 2026-10-08 — Milestone 6, Checkpoint A: praćenje sopstvenog DEMO naloga (D-051)
+
+Grana `codex/milestone-6-demo-copy` (od `61e611e`, M6-B). Kontekst: live
+pre-check vraća `errorCode 972` za sve tradere i iznose; vlasnik je
+odlučio — praćenje bez kopiranja, demo copy kod ostaje spreman.
+
+### Urađeno
+
+- Mapper `AccountPnlMapper` (+ `DecimalAmount`, `UtcTimestamp` izdvojen
+  iz `LivePortfolioMapper`-a bez promene ponašanja), DTO-i `AccountPnl`,
+  `AccountPosition`, `AccountMirror`; obe dokumentovane varijante ključeva.
+- `AccountValuation`: invested/equity tačno po eToro vodičima, null +
+  razlog kad član nedostaje.
+- Migracija `account_snapshots`, `account_mirrors`, `account_positions`
+  (centi, DECIMAL(30,10), bez raw payload-a); modeli i factory-ji;
+  mirror ↔ trader preko CID-a.
+- `SyncEtoroAccount` (ImportRun `account`, idempotentno, `mapping_failed`
+  dijagnoza, unmodeled ključevi po imenu), `QueueEtoroAccountSync`,
+  `SyncEtoroAccountJob`, `etoro:sync-account --demo [--now]`, scheduler
+  dnevno 03:30 UTC. REAL odbijen u kodu (`AccountSyncEnvironment`).
+- Filament „Demo trading → My demo account“ + `DemoAccountHistoryChart`.
+- `DemoCopyErrorReason`: kod bez poruke se prikazuje; 972 sa označenim
+  tumačenjem iz web UI-ja (pre-check i poll). D-050 dopunjen.
+- Sintetički fixture-i `account-pnl.json`, `account-pnl-empty.json`.
+- Docs: D-051, D-050 dopuna, `ETORO_API_CAPABILITIES.md`, README,
+  fixture README.
+
+### Testovi
+
+Mapper (pun/prazan nalog, mirror sa pozicijama, nepoznata polja, obe
+varijante ključeva, konflikt varijanti, obavezna polja, tipovi),
+`DecimalAmount`, `AccountValuation`, use case (snapshot, idempotentnost,
+promena, prazan nalog, REAL odbijen bez zahteva i ImportRun-a,
+`mapping_failed`, HTTP statusi, bez sirovih vrednosti u metadata), job
+(release, failed(), uuid, REAL), komanda (flagovi, `--real`, `--now`,
+scheduler), Filament (prazno stanje, podaci, link na tradera, equity
+razlog, REAL skriven, akcija queue-uje, grafik ≥ 2), 972 (use case, poll,
+notifikacija).
+
+### Verifikacija
+
+- `vendor/bin/pint --test`: passed.
+- `composer types:check`: 0 errors.
+- `php artisan test --compact`: 2299 total, 2295 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `php artisan migrate` nad dev bazom `trade_ledger`: nova migracija
+  primenjena.
+
+### Bezbednost
+
+Nijedan live eToro poziv (javna eToro dokumentacija pročitana preko
+web-a); `.env` nije čitan ni menjan; bez paketa; ništa destruktivno; bez
+commit-a.
+
+### Dopuna posle review-a (alias konflikti)
+
+- `AccountPnlMapper::positionPnl`: ugnežđen `unrealizedPnL.pnL` i ravan
+  `pnL` idu kroz isti conflict-safe `aliased()` — različite vrednosti →
+  `invalid_value` (`…unrealizedPnL.pnL`), ranije je tiho pobeđivao
+  ugnežđeni.
+- `orderSum`: `mirrorID` / `mirrorId` u `ordersForOpen` kroz `aliased()`
+  umesto `??` — konflikt → `invalid_value`
+  (`clientPortfolio.ordersForOpen[i].mirrorID`). U mapperu nema više `??`
+  između alias varijanti. D-051 t. 2 dopunjen.
+- Testovi: oba konflikta (i obrnut redosled za mirror id), saglasne duple
+  vrednosti, poruka bez vrednosti.
+
+### Dopuna posle review-a (kanonizacija alias-a)
+
+- `AccountPnlMapper::aliased()` prati prisustvo svakog ključa
+  (`array_key_exists`); `null` pored ne-null varijante → `invalid_value`
+  (ranije je tiho pobeđivala ne-null). Ne-null vrednosti se kanonizuju
+  parserom polja i porede kanonski (`mirrorID: 0` + `mirrorId: "0"`
+  prihvaćeno, ranije odbijeno). Svi `optional*`/`require*` pomoćnici
+  prosleđuju svoj parser. D-051 t. 2 dopunjen.
+- Testovi: null naspram vrednosti u oba redosleda (pozicija, ugnežđen/ravan
+  P&L, null `unrealizedPnL`, order, mirror), kanonski saglasne vrednosti
+  (0/"0", ID int/string, 12.3/12.30, 12/12.0), obe null (opciono i
+  obavezno).
+- Gate: `pint --test` passed; `types:check` 0 errors; `php artisan test`
+  2315 total, 2311 passed, 4 skipped, 1 poznato upozorenje. Bez commit-a.

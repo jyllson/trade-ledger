@@ -92,7 +92,7 @@ final class PreCheckDemoCopy
                 $operation,
                 DemoCopyOperationStatus::Rejected,
                 $response,
-                is_string($errorMessage) && trim($errorMessage) !== '' ? 'eToro: '.$errorMessage : 'eToro reported the copy as not allowed (no reason given).',
+                DemoCopyErrorReason::describe('eToro refused the copy', 'errorCode', $errorCode, $errorMessage),
                 ['error_code' => is_int($errorCode) ? (string) $errorCode : null],
             );
         }

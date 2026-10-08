@@ -9,6 +9,7 @@ use App\Models\DemoCopyOperationType;
 use App\Models\Trader;
 use App\Models\User;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -121,6 +122,24 @@ it('stops after a rejected pre-check without opening the confirmation', function
 
     Http::assertSentCount(1);
     expect(DemoCopyOperation::where('type', DemoCopyOperationType::Start)->count())->toBe(0);
+});
+
+it('shows errorCode 972 and its labelled interpretation in the pre-check notification', function () {
+    Http::fake(['*/copy/demo/eligibility' => Http::response(['CID' => 1, 'parentCID' => 5551234, 'isSuccess' => false, 'errorCode' => 972], 200)]);
+
+    Livewire::test(ViewTrader::class, ['record' => $this->trader->id])
+        ->callAction('copyOnDemo', data: ['amount' => '500'])
+        ->assertActionNotMounted('confirmDemoCopy')
+        ->assertNotified(
+            Notification::make()
+                ->title('eToro pre-check: not allowed — nothing was copied')
+                ->body(DemoCopyOperation::where('type', DemoCopyOperationType::PreCheck)->sole()->reason.' (status: rejected)')
+                ->danger()
+                ->persistent(),
+        );
+
+    expect(DemoCopyOperation::where('type', DemoCopyOperationType::PreCheck)->sole()->reason)
+        ->toStartWith('eToro refused the copy (errorCode 972). ');
 });
 
 it('does not accept a pre-check of another trader through the confirmation arguments', function () {

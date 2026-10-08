@@ -232,6 +232,32 @@ exact allow-list (`POST /api/v2/trading/copy/demo`, `…/eligibility`,
 `…/close`, `GET …/{referenceId}`). Demo copy requests are never retried —
 an uncertain start is resolved only by polling its `referenceID`.
 
+A pre-check refused with an error code but no message shows the code
+itself; for the undocumented `errorCode 972` (seen for every trader and
+amount on 2026-10-08) the reason adds a clearly labelled interpretation
+from the eToro web app (minimum deposit for copy trading), not an API
+statement (D-051).
+
+### My demo account (read-only DEMO account tracking)
+
+`docs/DECISIONS.md` D-051. **Demo trading → My demo account**
+(`/admin/my-demo-account`) shows the latest stored snapshot of the own eToro
+DEMO account (credit, invested, unrealized P&L, equity), its open positions
+and copies (linked to the trader page when the copied trader is stored) and
+the snapshot history with a small chart (from two snapshots). **Sync demo
+account** queues one read-only GET of `/api/v1/trading/info/demo/pnl`.
+
+```bash
+php artisan etoro:sync-account --demo        # queue (needs the queue worker)
+php artisan etoro:sync-account --demo --now  # run in this process
+```
+
+The scheduler runs `etoro:sync-account --demo` daily at 03:30 UTC. Invested
+and equity follow eToro's “Calculate Total Invested” / “Calculate Equity”
+guides and are left empty (with the reason) when the payload lacks a term.
+The **REAL** account is refused in code (`--real` exits with an error)
+until the owner accepts the Demo tracking (PROJECT.md §20).
+
 ### Background services on macOS (launchd)
 
 Two user LaunchAgents keep the queue worker and the scheduler running
