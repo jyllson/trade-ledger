@@ -2472,3 +2472,29 @@ commit-a.
   obavezno).
 - Gate: `pint --test` passed; `types:check` 0 errors; `php artisan test`
   2315 total, 2311 passed, 4 skipped, 1 poznato upozorenje. Bez commit-a.
+
+## 2026-10-08 — Milestone 6: zatvaranje A/B, C blokiran
+
+Samo dokumentacija; bez izmena koda, bez live poziva, `.env` nije čitan
+ni menjan, bez paketa, bez commit-a.
+
+- `docs/REVIEW_STATUS.md`: novi vrh — M6 status „A i B završeni, C
+  blokiran“; checkpoint-i B `61e611e` (D-050) i A `834f1e0` (D-051);
+  review runde ukratko; live provera 2026-10-08 (demo copy scope potvrđen
+  pre-check-om HTTP 200; `errorCode 972` za 4 tradera i iznose
+  $200–$25,000, prema web UI-ju minimalni depozit na real nalogu; nijedan
+  copy nije pokrenut; demo account sync `completed`, prvi snapshot prazan
+  nalog; `ETORO_ALLOW_DEMO_COPY` uključen lokalno); §20 M6 acceptance —
+  ispunjeno: Demo P&L import, snapshot-i, demo copy u kodu; nije
+  ispunjeno: actual copy performance i predicted vs actual (nema copy-ja
+  na nalogu). M5 zapis premešten u istoriju (merge kroz PR #11).
+- `README.md`: Status — M5 merge-ovan kroz PR #11; M6 delimično (A i B,
+  C blokiran). Sekcije „Demo copy trading“ i „My demo account“ proverene,
+  tačne.
+- Real nalog: čitanje i dalje odbijeno u kodu dok vlasnik ne prihvati Demo
+  praćenje.
+- U dokumentaciji nema username-ova tradera, vrednosti pozicija ni
+  ključeva.
+
+Gate: `git diff --check` čist; `pint --test` passed; `php artisan test`
+2315 total, 2311 passed, 4 skipped, 1 poznato upozorenje.

@@ -16,12 +16,16 @@ concentration/leverage exposure and the copy amount simulator) is
 [PR #10](https://github.com/jyllson/trade-ledger/pull/10). Product
 Milestone 5 (trader comparison: comparison page for 2–10 traders, analysis
 profiles with transparent filters, data-quality warnings, CSV export) is
-**COMPLETE** on branch `codex/milestone-5-trader-comparison` (checkpoints
-A–D, pending its PR/merge into `main`). Per-milestone evidence and the
-`PROJECT.md` §20 acceptance criteria are in `docs/REVIEW_STATUS.md`. The
-next product milestone per `PROJECT.md` §20 is Milestone 6 (own account
-tracking); its Checkpoint B adds demo copy trading on branch
-`codex/milestone-6-demo-copy`. The application has no trading or
+**COMPLETE** — merged via
+[PR #11](https://github.com/jyllson/trade-ledger/pull/11). Product
+Milestone 6 (own account tracking) is **PARTIAL** on branch
+`codex/milestone-6-demo-copy`: Checkpoint A (read-only tracking of the own
+DEMO account) and Checkpoint B (demo copy trading) are done; Checkpoint C
+(predicted fidelity vs. actual copy result) is **blocked** — the demo
+account has no copy yet (every pre-check refused with `errorCode 972`), and
+it resumes once a copy exists (via the API or manually). Per-milestone
+evidence and the `PROJECT.md` §20 acceptance criteria are in
+`docs/REVIEW_STATUS.md`. The application has no trading or
 real-account write capability; the single exception is copying traders on
 the eToro **DEMO** account (see below, `docs/DECISIONS.md` D-050).
 

@@ -1,12 +1,91 @@
 # REVIEW_STATUS — TradeLedger
 
-**Trenutni implementation stream:** Milestone 5 — implementacija završena
-na grani `codex/milestone-5-trader-comparison`; čeka PR/merge u `main`.
-**Poslednje ažuriranje:** 2026-10-07 (Milestone 5, Checkpoint D — zatvaranje)
+**Trenutni implementation stream:** Milestone 6 — A i B završeni, C
+blokiran; grana `codex/milestone-6-demo-copy`.
+**Poslednje ažuriranje:** 2026-10-08 (Milestone 6 — zatvaranje A/B)
 
-## ✅ Product Milestone 5 — COMPLETE na grani (poređenje tradera)
+## ⏸️ Product Milestone 6 — A i B završeni, C blokiran (praćenje sopstvenog naloga)
 
-Grana `codex/milestone-5-trader-comparison`, PR još nije otvoren/merge-ovan.
+Grana `codex/milestone-6-demo-copy` (od `main` posle merge-a M5 kroz
+[PR #11](https://github.com/jyllson/trade-ledger/pull/11)); PR još nije
+otvoren.
+
+| Checkpoint | Commit | Sadržaj | Odluke |
+|---|---|---|---|
+| B | `61e611e` | demo-only kopiranje tradera preko API-ja sa zaštitama: bela lista metod + putanja, pre-check → eksplicitna potvrda → start/adjust/close, ograničen polling ishoda, audit svakog koraka; isključeno podrazumevano (`ETORO_ALLOW_DEMO_COPY`); odluka vlasnika 2026-10-08 | D-050 |
+| A | `834f1e0` | praćenje sopstvenog DEMO naloga (read-only `GET /api/v1/trading/info/demo/pnl`): snapshot-i kredita, investiranog, nerealizovanog P&L-a, equity-ja, pozicija i copy-jeva; `etoro:sync-account --demo`, dnevni scheduler, stranica My demo account; prepoznavanje koda 972 | D-051 |
+| C | — | predviđena fidelity naspram stvarnog rezultata copy-ja | **BLOKIRAN** |
+| zatvaranje | (ovaj, necommit-ovan) | dokumentacija (README, REVIEW_STATUS, WORKLOG) | — |
+
+**Review runde (ukratko):**
+
+- B: guard nad `base_url` i konačnim URL-om (blocker) ispravljen —
+  zahtev ide samo na dozvoljen host i putanju sa bele liste; close
+  semantika: „zatraženo“ ≠ „potvrđeno“ (eToro samo potvrđuje prijem,
+  završetak se ne može poll-ovati); strogi ugovori odgovora (nepoznat
+  oblik → greška, ne pretpostavka); redakcija tajni u porukama i audit
+  zapisima — doslovno, JSON-escaped i URL-encoded. Preostali nalazi
+  (curenje prefiksa od 1–7 znakova, ručni `\u` escape) ocenjeni su kao
+  van realnog modela pretnje i nisu menjani.
+- A: alias konflikti u mapperu — različite vrednosti, `null` naspram
+  vrednosti i kanonsko poređenje (`0`/`"0"`, `12.3`/`12.30`) → konflikt
+  je `invalid_value`, nikad tihi izbor; equity formula potvrđena prema
+  eToro vodiču „Calculate Equity“ (i „Calculate Total Invested“).
+
+**Live provera 2026-10-08** (read-only GET-ovi i demo pre-check,
+zabeleženo u privatnom ledger-u):
+
+- API ključ ima demo copy scope — pre-check vraća HTTP 200, ne 403.
+- Pre-check odbija svaki pokušaj sa `errorCode 972` (4 tradera, iznosi
+  $200–$25,000). eToro web UI kao razlog navodi minimalni depozit
+  (~20K EUR) na real nalogu; API to ne kaže — tumačenje je u aplikaciji
+  jasno označeno (D-051). **Nijedan copy nije pokrenut.**
+- Demo account sync: `completed`, prvi snapshot (prazan nalog — bez
+  pozicija i copy-jeva).
+- `ETORO_ALLOW_DEMO_COPY` je uključen u lokalnom okruženju vlasnika.
+
+U dokumentaciji nema username-ova, vrednosti pozicija ni ključeva.
+
+**`PROJECT.md` §20 M6 acceptance:**
+
+1. *Demo P&L import first* — **ispunjeno** (Checkpoint A): import
+   `demo/pnl`, mapper sa strogom validacijom, `ImportRun` audit; live
+   sync `completed`.
+2. *Balance/equity/positions/copies snapshots* — **ispunjeno**
+   (Checkpoint A): snapshot-i sa istorijom i grafikom, equity/invested po
+   eToro vodičima (prazno sa razlogom kad termin nedostaje); live
+   potvrđeno samo na praznom nalogu — unutrašnja šema pozicija i mirror-a
+   još nije posmatrana live.
+3. *Copying a trader on the DEMO account through the API* — **ispunjeno**
+   u kodu (Checkpoint B); live je potvrđen samo pre-check (scope, 972),
+   start/adjust/close nisu izvršeni jer pre-check ne propušta.
+4. *Actual copy performance* — **nije ispunjeno**: na nalogu nema
+   nijednog copy-ja (972), pa nema stvarnih podataka.
+5. *Comparison between predicted fidelity and actual result* — **nije
+   ispunjeno** (Checkpoint C, BLOKIRAN): zahteva bar jedan copy sa
+   istorijom. Nastavlja se kad copy postoji — preko API-ja ili ručno u
+   eToro web UI-ju (demo sync ga onda vidi).
+
+**Real nalog:** čitanje i dalje odbijeno u kodu (`--real` izlazi sa
+greškom) dok vlasnik ne prihvati Demo praćenje; real write nikad nije u
+obimu.
+
+**Verifikacija zatvaranja:** samo dokumentacija; `git diff --check`
+čist; `vendor/bin/pint --test` passed; `php artisan test --compact`
+2315 total, 2311 passed, 4 skipped, 1 poznato nepovezano upozorenje.
+
+**Šta sledi:** commit zatvaranja i PR grane `codex/milestone-6-demo-copy`;
+M6-C kad na demo nalogu postoji copy; odluka vlasnika o prihvatanju Demo
+praćenja (preduslov za real read).
+
+---
+
+## Istorija: Milestone 5 zapis
+
+## ✅ Product Milestone 5 — COMPLETE (poređenje tradera)
+
+Merge-ovano u `main` kroz
+[PR #11](https://github.com/jyllson/trade-ledger/pull/11) (`fcd2365`).
 
 | Checkpoint | Commit | Sadržaj | Odluke |
 |---|---|---|---|
