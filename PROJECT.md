@@ -1,7 +1,7 @@
 # TradeLedger — PROJECT.md
 
 **Status:** Draft v0.1<br>
-**Last verified:** 2026-10-05<br>
+**Last verified:** 2026-10-08<br>
 **Primary owner:** Slavko<br>
 **Working repository name:** `trade-ledger`
 
@@ -26,16 +26,18 @@ The second question is:
 
 > **How does that trader compare with other candidates when return, risk, consistency, concentration, and copy fidelity are considered separately?**
 
-The application must not initially execute trades, start or stop copying, deposit, withdraw, or perform any money-moving action.
+The application must not execute trades, deposit, withdraw, or perform any real-money action. The single exception (owner decision 2026-10-08, `docs/DECISIONS.md` D-050) is starting, adjusting and closing a copy of a trader on the eToro **DEMO** account (virtual money) — see §2 principle 1.
 
 ---
 
 ## 2. Product principles
 
-1. **Read-only by design.**
-   - No trading execution in the MVP.
+1. **Read-only, except copying traders on the DEMO account** (owner decision 2026-10-08, D-050).
+   - No trading execution, no real-account write of any kind.
+   - The only write exception is the documented eToro "Copy Trading - Demo" API, and only these exact routes: `POST /api/v2/trading/copy/demo/eligibility` (pre-check), `POST /api/v2/trading/copy/demo` (start a copy / add or remove funds), `POST /api/v2/trading/copy/demo/close` (close or detach), plus the read-only outcome poll `GET /api/v2/trading/copy/demo/{referenceId}`.
+   - The exception is off by default (`ETORO_ALLOW_DEMO_COPY=false`) and every write additionally needs a successful eToro pre-check (close has none documented) and an explicit user confirmation in the UI.
+   - Everything else — real account (any path containing `/real`), orders, positions, real copy, transfers, feed, watchlists, price alerts, etc. — stays forbidden and is blocked **in code** (`EtoroWriteGuard` allow-list), not only by configuration. `ETORO_ALLOW_WRITE` must stay `false` and never opens anything.
    - No generic HTTP method exposed outside the eToro infrastructure layer.
-   - Write endpoints must be blocked by configuration and code.
 
 2. **Transparent calculations.**
    - Every metric must have a documented formula.
@@ -201,8 +203,8 @@ Rules:
 
 ### 6.2 Explicitly out of scope for MVP
 
-- Placing, editing, or closing orders.
-- Starting, changing, or stopping a copy relationship.
+- Placing, editing, or closing orders (demo or real).
+- Starting, changing, or stopping a copy relationship on the **real** account. (Exception, D-050: the same on the **DEMO** account through the allow-listed demo copy endpoints only — §2 principle 1, §17.)
 - Deposits, withdrawals, transfers, or wallet actions.
 - Automated portfolio rebalancing.
 - XTrade email import.
@@ -643,7 +645,9 @@ copierStats(string $username): CopierStatsData
 accountPnl(EtoroEnvironment $environment): AccountPnlData
 ```
 
-There must be no `post()`, `delete()`, `executeOrder()`, or `startCopying()` method in the MVP.
+There must be no `post()`, `delete()`, `executeOrder()`, or `startCopying()` method in the MVP. `EtoroClient` stays GET-only.
+
+The single write exception (D-050) lives in a separate `EtoroDemoCopyClient` with four typed methods — `preCheck()`, `startOrAdjust()`, `pollOutcome()`, `close()` — each checked by `EtoroWriteGuard` against the exact demo copy route allow-list and `ETORO_ALLOW_DEMO_COPY` right before sending. Its requests are **never retried** (one attempt, one rate-limit permit): a register request is not idempotent, so an uncertain outcome is resolved only by polling its `referenceID`.
 
 ### Response handling
 
@@ -1295,9 +1299,12 @@ For local development, all commands must be runnable manually.
 
 Mandatory:
 
-- Read-only API key.
-- `ETORO_ALLOW_WRITE=false`.
-- No write methods in `EtoroClient`.
+- API key permissions: read permissions, plus — only if demo copy is used — the demo trading write permission. Real-account write permissions ("Trading – Real · Write" etc.) must never be granted.
+- `ETORO_ALLOW_WRITE=false` (the application refuses to boot otherwise; it never enables any write).
+- `ETORO_ALLOW_DEMO_COPY=false` by default; when true, only the allow-listed demo copy routes (§2 principle 1) can be sent — anything containing `/real` or not on the list is refused in code regardless of flags.
+- No write methods in `EtoroClient`; demo copy writes only through `EtoroDemoCopyClient`, single attempt, no retry.
+- Every demo copy attempt (pre-check, start, adjust, close, poll) is audited in `demo_copy_operations` with sanitized, allow-listed response fields only — never headers or keys.
+- Demo copy requires a successful eToro pre-check (where documented) and an explicit confirmation stating DEMO account, trader and amount.
 - Credentials redacted in logs.
 - Raw API payloads reviewed for personal information.
 - Filament authentication enabled.
@@ -1576,9 +1583,10 @@ Deliver:
 - Demo P&L import first;
 - balance/equity/positions/copies snapshots;
 - actual copy performance;
-- comparison between predicted fidelity and actual result.
+- comparison between predicted fidelity and actual result;
+- copying a trader on the DEMO account through the API (owner decision 2026-10-08, D-050): pre-check → explicit confirmation → start/adjust/close → bounded outcome polling, every step audited; off by default (`ETORO_ALLOW_DEMO_COPY`).
 
-Real account read access is enabled only after Demo acceptance.
+Real account read access is enabled only after Demo acceptance. Real-account writes are never in scope.
 
 ### Milestone 7 — XTrade email importer
 

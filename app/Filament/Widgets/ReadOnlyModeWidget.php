@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets;
 
+use App\Application\DemoCopy\DemoCopyAvailability;
 use App\Etoro\EtoroWriteGuard;
 use Filament\Widgets\Widget;
 
@@ -19,12 +20,13 @@ class ReadOnlyModeWidget extends Widget
     protected int|string|array $columnSpan = 'full';
 
     /**
-     * @return array{writeAllowed: bool, environment: string}
+     * @return array{writeAllowed: bool, demoCopyEnabled: bool, environment: string}
      */
     protected function getViewData(): array
     {
         return [
             'writeAllowed' => app(EtoroWriteGuard::class)->allowsWrite(),
+            'demoCopyEnabled' => app(DemoCopyAvailability::class)->isEnabled(),
             'environment' => (string) config('etoro.environment'),
         ];
     }

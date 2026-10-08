@@ -1,5 +1,6 @@
 <?php
 
+use App\Filament\Resources\Traders\Actions\DemoCopyActions;
 use App\Filament\Resources\Traders\Pages\ListTraders;
 use App\Filament\Resources\Traders\Pages\ViewTrader;
 use App\Filament\Resources\Traders\Schemas\TraderInfolist;
@@ -28,6 +29,7 @@ function checkpointH2TraderFilamentClasses(): array
         TraderPortfolioSection::class,
         TraderPortfolio::class,
         CopyAmountSimulator::class,
+        DemoCopyActions::class,
     ];
 }
 

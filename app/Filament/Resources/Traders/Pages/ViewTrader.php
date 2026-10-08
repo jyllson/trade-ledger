@@ -6,6 +6,7 @@ namespace App\Filament\Resources\Traders\Pages;
 
 use App\Application\Traders\QueueTraderPerformanceSync;
 use App\Application\Traders\QueueTraderPortfolioSync;
+use App\Filament\Resources\Traders\Actions\DemoCopyActions;
 use App\Filament\Resources\Traders\TraderResource;
 use App\Filament\Resources\Traders\Widgets\CopyAmountSimulator;
 use App\Filament\Resources\Traders\Widgets\TraderDrawdownChart;
@@ -63,7 +64,27 @@ class ViewTrader extends ViewRecord
                         ->success()
                         ->send();
                 }),
+            DemoCopyActions::start(),
+            DemoCopyActions::adjust(),
+            DemoCopyActions::close(),
         ];
+    }
+
+    /**
+     * Step 2 of „Copy on demo“ — mounted only by DemoCopyActions after an
+     * accepted eToro pre-check (D-050).
+     */
+    public function confirmDemoCopyAction(): Action
+    {
+        return DemoCopyActions::confirmStart();
+    }
+
+    /**
+     * Step 2 of „Adjust demo copy“ (D-050).
+     */
+    public function confirmAdjustDemoCopyAction(): Action
+    {
+        return DemoCopyActions::confirmAdjust();
     }
 
     protected function getFooterWidgets(): array

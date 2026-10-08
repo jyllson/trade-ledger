@@ -316,3 +316,61 @@ interpretaciju payload-a.
    konkretna schema rupa koja zahteva dodatni uvid u stvarni odgovor — ovo
    ostaje na snazi i nakon Checkpoint A–B target-coverage stream-a (nijedan
    dodatan live poziv nije izvršen).
+
+---
+
+## Copy Trading - Demo — dokumentovano, NIJE live verifikovano (2026-10-08)
+
+Izvor: zvanična eToro OpenAPI dokumentacija v1.387.0 (sačuvana lokalno van
+repoa), **ne** live proba. Nijedan od ovih endpoint-a još nije pozvan
+(ni read ni write); live provera je poseban korak posle review-a, uz
+potvrdu vlasnika (D-050). Implementacija: `App\Etoro\EtoroDemoCopyClient`
+iza `EtoroWriteGuard` bele liste i `ETORO_ALLOW_DEMO_COPY`.
+
+| Sposobnost | Metod | Path | Dokumentovani odgovor | Status |
+|---|---|---|---|---|
+| Pre-check (dry run) | POST | `/api/v2/trading/copy/demo/eligibility` | 200 `CID`, `parentCID`, `isSuccess`, opc. `errorCode`, `errorMessage`; 400/401/403/429/500 | documented, not live-verified |
+| Start / dodaj / povuci sredstva | POST | `/api/v2/trading/copy/demo` | 200 `token` (prihvaćeno, asinhrono); 400/401/403/429 | documented, not live-verified |
+| Ishod po referenceID-u | GET | `/api/v2/trading/copy/demo/{referenceId}` | 200 `referenceID`, `isSuccess`, opc. `mirrorID`, `parentCID`, `parentUsername`, `errorMessageCode`, `failReason`; 404 = još nema konačnog ishoda | documented, not live-verified |
+| Close / detach (JSON body) | POST | `/api/v2/trading/copy/demo/close` | 200 `token` (samo potvrda prijema; nije pollable) | documented, not live-verified |
+| Close / detach (query) | DELETE | `/api/v2/trading/copy/demo` | isto | documented; **namerno se ne koristi** (nije na beloj listi) |
+
+Dokumentovane činjenice koje kod koristi: svi zahtevi traže
+`x-request-id` (UUID); deljena kvota 60/60 s; `referenceID` ≤ 35 znakova,
+URL-safe, bez `/`, **nije** idempotency ključ; `clientRequestID` (close)
+jeste idempotency ključ; iznos ≠ 0 (pozitivan dodaje, negativan povlači).
+Nejasno: tačna dozvola ključa za `x-api-key`/`x-user-key` par (OAuth
+scope-ovi `etoro-public:demo:write` ili `etoro-public:trade.demo:write`),
+minimalni iznos, vreme asinhrone obrade (vidi D-050 „Otvoreno“).
+
+### Live zapažanja 2026-10-08 (vlasnik; M6-B dijagnoza)
+
+- `POST /api/v2/trading/copy/demo/eligibility`: 6 poziva (3 tradera +
+  smart portfolio; iznosi $200–$25,000) — svi HTTP 200, `isSuccess=false`,
+  `errorCode 972`, bez `errorMessage`. Ključ ima dozvolu (nije 401/403).
+  Kod 972 **nije dokumentovan** („opaque diagnostic data“); eToro web UI
+  za isti nalog kaže da copy traži minimalni depozit (~20K EUR) na real
+  nalogu — to je tumačenje iz web UI-ja, ne odgovor API-ja
+  (`docs/DECISIONS.md` D-050 dopuna, D-051 t. 9).
+- `GET /api/v1/trading/info/demo/pnl`: HTTP 200, ista 13 `clientPortfolio`
+  ključa kao u Run #1; nalog bez pozicija i bez mirrors.
+
+---
+
+## Own account P&L — šema za M6-A (2026-10-08)
+
+Posmatrano live: samo top-level `clientPortfolio` ključevi (iznad), na
+praznom nalogu. Unutrašnja šema pozicija / mirror-a / ordera preuzeta je
+iz zvaničnog OpenAPI v1.387.0 (`PortfolioResponseWithPnl`) i **nije live
+verifikovana**. Dokumentacija je nekonzistentna u nazivima ključeva (šema
+`positionID`/`CID`/`parentCID` i ugnežđen `unrealizedPnL.pnL`; primer
+`positionId`/`cid`/`parentCid` i ravan `pnL`) — mapper prihvata obe
+varijante (D-051 t. 2). Equity i total invested po vodičima „Calculate
+Equity“ / „Calculate Total Invested“ (D-051 t. 4). Deljena kvota 60/60 s
+sa `/api/v1/trading/info/demo/portfolio` i
+`/api/v2/trading/info/demo/instrument-breakdown`.
+
+| Sposobnost | Metod | Path | Status |
+|---|---|---|---|
+| Demo account P&L | GET | `/api/v1/trading/info/demo/pnl` | works (prazan nalog); pozicije/mirrors documented, not live-verified |
+| Real account P&L | GET | `/api/v1/trading/info/real/pnl` | works (M1); sync **onemogućen u kodu** do prihvatanja Demo-a |

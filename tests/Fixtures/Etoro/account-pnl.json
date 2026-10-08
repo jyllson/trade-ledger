@@ -1,0 +1,166 @@
+{
+    "clientPortfolio": {
+        "positions": [
+            {
+                "positionID": 100001,
+                "CID": 9000001,
+                "openDateTime": "2026-09-01T10:00:00Z",
+                "openRate": 182.35,
+                "instrumentID": 500001,
+                "mirrorID": 0,
+                "parentPositionID": 0,
+                "isBuy": true,
+                "takeProfitRate": 0,
+                "stopLossRate": 0,
+                "amount": 1000,
+                "leverage": 1,
+                "orderID": 0,
+                "orderType": 0,
+                "units": 5.4839,
+                "totalFees": 0,
+                "initialAmountInDollars": 1000,
+                "isTslEnabled": false,
+                "isSettled": true,
+                "isPartiallyAltered": false,
+                "settlementTypeID": 1,
+                "isDetached": false,
+                "unrealizedPnL": {
+                    "pnL": 120.4,
+                    "exposureInAccountCurrency": 1120.4,
+                    "closeRate": 204.31,
+                    "timestamp": "2026-10-08T09:00:00Z"
+                }
+            },
+            {
+                "positionID": 100002,
+                "CID": 9000001,
+                "openDateTime": "2026-09-15T08:30:00.123Z",
+                "openRate": 64250.5,
+                "instrumentID": 500002,
+                "mirrorID": 0,
+                "parentPositionID": 0,
+                "isBuy": false,
+                "amount": 500.5,
+                "leverage": 2,
+                "units": 0.01,
+                "initialAmountInDollars": 500.5,
+                "settlementTypeID": 0,
+                "unrealizedPnL": {
+                    "pnL": -20.15
+                }
+            }
+        ],
+        "credit": 5000.25,
+        "mirrors": [
+            {
+                "mirrorID": 7001,
+                "CID": 9000001,
+                "parentCID": 5551234,
+                "stopLossPercentage": 50,
+                "isPaused": false,
+                "copyExistingPositions": true,
+                "availableAmount": 300,
+                "stopLossAmount": 1000,
+                "initialInvestment": 2000,
+                "depositSummary": 500,
+                "withdrawalSummary": 0,
+                "positions": [
+                    {
+                        "positionID": 200001,
+                        "CID": 9000001,
+                        "openDateTime": "2026-08-01T12:00:05Z",
+                        "openRate": 180.1,
+                        "instrumentID": 500001,
+                        "mirrorID": 7001,
+                        "parentPositionID": 300001,
+                        "isBuy": true,
+                        "amount": 1200,
+                        "leverage": 1,
+                        "units": 6.5,
+                        "initialAmountInDollars": 1150,
+                        "unrealizedPnL": {
+                            "pnL": 75.3
+                        }
+                    },
+                    {
+                        "positionID": 200002,
+                        "CID": 9000001,
+                        "openDateTime": "2026-08-02T09:00:00Z",
+                        "openRate": 10,
+                        "instrumentID": 500003,
+                        "mirrorID": 7001,
+                        "parentPositionID": 300002,
+                        "isBuy": true,
+                        "amount": 1000,
+                        "leverage": 1,
+                        "units": 100,
+                        "initialAmountInDollars": 1000,
+                        "unrealizedPnL": {
+                            "pnL": -2.05
+                        }
+                    }
+                ],
+                "parentUsername": "trader_001",
+                "closedPositionsNetProfit": 50,
+                "startedCopyDate": "2026-08-01T12:00:00Z",
+                "pendingForClosure": false,
+                "parentMirrors": [],
+                "mirrorCalculationType": 0,
+                "ordersForOpen": [],
+                "ordersForClose": [],
+                "ordersForCloseMultiple": [],
+                "mirrorStatusID": 0
+            }
+        ],
+        "orders": [
+            {
+                "orderId": 5001,
+                "cid": 9000001,
+                "openDateTime": "2026-10-07T10:00:00Z",
+                "instrumentId": 500004,
+                "isBuy": true,
+                "rate": 50.25,
+                "amount": 250,
+                "leverage": 1,
+                "units": 0
+            }
+        ],
+        "ordersForOpen": [
+            {
+                "orderId": 6001,
+                "orderType": 1,
+                "statusId": 1,
+                "cid": 9000001,
+                "instrumentId": 500005,
+                "amount": 100,
+                "isBuy": true,
+                "leverage": 1,
+                "mirrorId": 0,
+                "totalExternalCosts": 1.5
+            },
+            {
+                "orderId": 6002,
+                "orderType": 1,
+                "statusId": 1,
+                "cid": 9000001,
+                "instrumentId": 500001,
+                "amount": 400,
+                "isBuy": true,
+                "leverage": 1,
+                "mirrorId": 7001,
+                "totalExternalCosts": 2
+            }
+        ],
+        "ordersForClose": [],
+        "ordersForCloseMultiple": [],
+        "bonusCredit": 0,
+        "unrealizedPnL": 187.5,
+        "accountCurrencyId": 1,
+        "stockOrders": [],
+        "entryOrders": [],
+        "exitOrders": [],
+        "someFutureField": {
+            "anything": "ignored"
+        }
+    }
+}

@@ -2239,3 +2239,262 @@ username-ova i vrednosti u dokumentaciji.
 
 Samo dokumentacija; bez izmena koda; bez `.env`; bez novih paketa; bez
 live eToro poziva; bez commit-a.
+
+## 2026-10-08 — Milestone 6, Checkpoint B: kopiranje tradera na DEMO nalogu preko API-ja
+
+Grana `codex/milestone-6-demo-copy` (od `main` @ `fcd2365`). Odluka
+vlasnika 2026-10-08: „read-only, osim kopiranja tradera na DEMO nalogu“
+(D-050). Izvor: zvanična eToro „Copy Trading - Demo“ dokumentacija
+(OpenAPI v1.387.0), tretirana kao podatak.
+
+### Urađeno
+
+- Pravila: PROJECT.md §1, §2 (princip 1), §6.2, §10, §17, §20 M6;
+  `docs/DECISIONS.md` D-050; README sekcija „Demo copy trading“;
+  `docs/ETORO_API_CAPABILITIES.md` — demo copy endpoint-i kao
+  „documented, not live-verified“.
+- Guard: `EtoroWriteGuard::ensureDemoCopyRequestAllowed()` — tačna bela
+  lista (POST `/api/v2/trading/copy/demo`, `/eligibility`, `/close`; GET
+  `/{referenceId}`), `/real` uvek odbijen, flag `etoro.allow_demo_copy`
+  (`ETORO_ALLOW_DEMO_COPY`, default `false`, samo strogo `true`).
+  `ETORO_ALLOW_WRITE` nepromenjen (ruši boot, ne otvara ništa).
+- Klijent: `App\Etoro\EtoroDemoCopyClient` (`preCheck`, `startOrAdjust`,
+  `pollOutcome`, `close`), jedan pokušaj bez retry-ja, jedna dozvola
+  `etoro-api` budžeta, rezultat kao `EtoroDemoCopyResponse` (outcome
+  responded / not_sent / connection_failed). Zajedničke provere izdvojene
+  iz `EtoroClient`-a u trait `App\Etoro\Concerns\PreparesEtoroRequests`
+  (bez promene ponašanja; postojeći testovi klijenta prolaze).
+- Application: `App\Application\DemoCopy` — `PreCheckDemoCopy`,
+  `StartDemoCopy`, `AdjustDemoCopy`, `SubmitDemoCopyRegistration`,
+  `CloseDemoCopy`, `PollDemoCopyOutcome`, `DemoCopyLedger`,
+  `DemoCopyAvailability`, `DemoCopyAmount`, `DemoCopyResponseSanitizer`,
+  `DemoCopyRefused`; job `PollDemoCopyOutcomeJob` (≤ 10 poll-ova, ≈ 9,5
+  min, zatim `unknown`).
+- Audit: tabela `demo_copy_operations` (migracija
+  `2026_10_08_100000_create_demo_copy_operations_table`), model
+  `DemoCopyOperation`, enum-i `DemoCopyOperationType` /
+  `DemoCopyOperationStatus`, factory.
+- UI: na stranici tradera „Copy on demo“ / „Adjust demo copy“ / „Close
+  demo copy“ (`App\Filament\Resources\Traders\Actions\DemoCopyActions`;
+  pre-check → zaseban modal potvrde sa obaveznim checkbox-om), audit
+  lista `DemoCopyOperationResource` sa „Check outcome“; dashboard baner
+  navodi izuzetak. Bulk na stranici poređenja nije urađen.
+- `.env.example`: `ETORO_ALLOW_DEMO_COPY=false` uz komentar.
+- Testovi: `DemoCopyWriteGuardTest`, `EtoroDemoCopyClientTest`,
+  `Application/DemoCopy/DemoCopyUseCasesTest`, `DemoCopyActionsTest`;
+  ažurirani `ReadOnlySafetyTest` (novi ključ i env varijabla),
+  `WriteSurfaceTest` (samo `EtoroDemoCopyClient` sme da šalje ne-GET;
+  `EtoroClient` bez copy/execution putanja), `DashboardTest`,
+  `TraderResourceArchitectureTest` (+ `DemoCopyActions`).
+
+### Komande
+
+```bash
+git checkout -b codex/milestone-6-demo-copy
+php artisan migrate --no-interaction   # dev baza trade_ledger: 1 nova tabela
+vendor/bin/pint --format agent
+vendor/bin/pint --test
+composer types:check
+php artisan test --compact
+git diff --check
+```
+
+### Verifikacija
+
+- `vendor/bin/pint --test`: passed.
+- `composer types:check`: 0 errors.
+- `php artisan test --compact`: 2094 total, 2090 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `git diff --check`: čist.
+
+### Bezbednost
+
+Nijedan live eToro poziv (ni read ni write) — sve kroz `Http::fake()` i
+`Http::preventStrayRequests()`. `.env` nije čitan ni menjan; bez novih
+paketa; ništa destruktivno (samo `migrate`); bez commit-a (ide nezavisni
+review). Live provera demo copy-ja je poseban korak uz potvrdu vlasnika.
+
+## 2026-10-08 — Milestone 6, Checkpoint B: ispravke posle security review-a
+
+Grana `codex/milestone-6-demo-copy`, necommit-ovano. D-050 ažuriran.
+
+### Urađeno
+
+- **Redakcija kredencijala:** `DemoCopyResponseSanitizer` menja tačne
+  vrednosti `etoro.api_key`/`etoro.user_key` (≥ 8 karaktera) sa
+  `[redacted]` u svim propuštenim stringovima odgovora i u `reason`-u,
+  pre truncate-a (D-050). Testovi: sentinel ključ sam i unutar teksta u
+  `error`, `errorMessage`, `failReason`; truncate granica; prazne/kratke
+  tajne ne rediguju ništa (`DemoCopyResponseSanitizerTest`).
+- **Redakcija encoded oblika:** rediguju se i JSON-escaped (sve
+  kombinacije escaped `/` i `\u`) i URL-encoded (`urlencode`,
+  `rawurlencode`) varijante ključa, case-insensitive; posle truncate-a
+  kraj koji je prefiks ≥ 8 bajtova bilo koje varijante postaje
+  `[redacted]`. Base64 namerno izostavljen (D-050). Sentinel testovi:
+  JSON escaping, obe URL varijante + lowercase hex, ključ bez
+  specijalnih karaktera, ključ preko granice truncate-a i upstream-odsečen
+  prefiks.
+- **BLOCKER — base_url / guard:** `ETORO_BASE_URL` mora biti goli https
+  origin (`PreparesEtoroRequests::validatedApiOrigin()`; bez userinfo-a,
+  porta osim 443, putanje, query-ja, fragmenta, `%`, `\`, razmaka).
+  `EtoroDemoCopyClient` zahteva host tačno `public-api.etoro.com`
+  (`EtoroWriteGuard::DEMO_COPY_HOST`), a URL gradi samo iz
+  `EtoroWriteGuard::DEMO_COPY_ORIGIN` + putanje. `ensureDemoCopyRequestAllowed()`
+  sada prima i parsira **konačni URL** (šema, host, port, userinfo,
+  query, fragment, normalizovana putanja, metod). Redirect-i se ne prate
+  (test: 307 ka `/real` → jedan zahtev, vraćen 307; test pada kad se
+  redirect uključi). Read klijent: ista stroga validacija origin-a, host
+  ostaje konfigurabilan (D-011), URL iz validiranog origin-a.
+- **MAJOR — close:** `accepted` samo za HTTP 200 sa `token` UUID jednakim
+  poslatom `clientRequestID`-u, inače `unknown`; `accepted` = „zatraženo,
+  nije potvrđeno“. `DemoCopyLedger::activeCopy()` više ne gasi kopiju
+  posle close-a; nov `unconfirmedClose()`. Posle close-a: adjust
+  blokiran; start uz upozorenje i obavezan dodatni checkbox
+  (`acknowledge_unconfirmed_close` / `acknowledgeUnconfirmedClose`) —
+  izabrano umesto blokade jer potvrde zatvaranja nema do M6-A. Ponovljen
+  close (posle `accepted`/`unknown`) koristi isti `clientRequestID`.
+  Audit lista i obaveštenje prikazuju „Requested — not confirmed“.
+- **MAJOR — strogi ugovor:** nov `App\Application\DemoCopy\DemoCopyResponseContract`
+  (pre-check: `CID` int32, `parentCID` int strogo = poslatom, `isSuccess`
+  bool, opciona polja tipizirana; start: 200 + UUID `token`; poll:
+  `referenceID`, `isSuccess`, `mirrorID` samo uz uspeh, `parentCID` +
+  `parentUsername` u paru i `parentCID` = poslatom, opciona polja
+  tipizirana). Van ugovora → `unknown`; pre-check `unknown` ne dozvoljava
+  nastavak.
+- Testovi: zlonamerni base_url-ovi (path, query, fragment, userinfo, drugi
+  / lookalike host, http, port, `%2F`, `..`, `//`, `\`, uppercase host,
+  prazno) za sve četiri metode uz `Http::assertNothingSent()`; URL-level
+  guard testovi; read klijent; close/start/pre-check/poll tela van
+  ugovora; tok close → adjust blokiran → start traži potvrdu (use case i
+  Filament).
+
+### Komande
+
+```bash
+vendor/bin/pint --format agent <izmenjeni fajlovi>
+vendor/bin/pint --test
+composer types:check
+php artisan test --compact
+git diff --check
+```
+
+### Verifikacija
+
+- `vendor/bin/pint --test`: passed.
+- `composer types:check`: 0 errors.
+- `php artisan test --compact`: 2209 total, 2205 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `git diff --check`: čist.
+
+### Bezbednost
+
+Nijedan live eToro poziv; `.env` nije čitan ni menjan; bez paketa; ništa
+destruktivno; bez commit-a.
+
+## 2026-10-08 — Milestone 6, Checkpoint A: praćenje sopstvenog DEMO naloga (D-051)
+
+Grana `codex/milestone-6-demo-copy` (od `61e611e`, M6-B). Kontekst: live
+pre-check vraća `errorCode 972` za sve tradere i iznose; vlasnik je
+odlučio — praćenje bez kopiranja, demo copy kod ostaje spreman.
+
+### Urađeno
+
+- Mapper `AccountPnlMapper` (+ `DecimalAmount`, `UtcTimestamp` izdvojen
+  iz `LivePortfolioMapper`-a bez promene ponašanja), DTO-i `AccountPnl`,
+  `AccountPosition`, `AccountMirror`; obe dokumentovane varijante ključeva.
+- `AccountValuation`: invested/equity tačno po eToro vodičima, null +
+  razlog kad član nedostaje.
+- Migracija `account_snapshots`, `account_mirrors`, `account_positions`
+  (centi, DECIMAL(30,10), bez raw payload-a); modeli i factory-ji;
+  mirror ↔ trader preko CID-a.
+- `SyncEtoroAccount` (ImportRun `account`, idempotentno, `mapping_failed`
+  dijagnoza, unmodeled ključevi po imenu), `QueueEtoroAccountSync`,
+  `SyncEtoroAccountJob`, `etoro:sync-account --demo [--now]`, scheduler
+  dnevno 03:30 UTC. REAL odbijen u kodu (`AccountSyncEnvironment`).
+- Filament „Demo trading → My demo account“ + `DemoAccountHistoryChart`.
+- `DemoCopyErrorReason`: kod bez poruke se prikazuje; 972 sa označenim
+  tumačenjem iz web UI-ja (pre-check i poll). D-050 dopunjen.
+- Sintetički fixture-i `account-pnl.json`, `account-pnl-empty.json`.
+- Docs: D-051, D-050 dopuna, `ETORO_API_CAPABILITIES.md`, README,
+  fixture README.
+
+### Testovi
+
+Mapper (pun/prazan nalog, mirror sa pozicijama, nepoznata polja, obe
+varijante ključeva, konflikt varijanti, obavezna polja, tipovi),
+`DecimalAmount`, `AccountValuation`, use case (snapshot, idempotentnost,
+promena, prazan nalog, REAL odbijen bez zahteva i ImportRun-a,
+`mapping_failed`, HTTP statusi, bez sirovih vrednosti u metadata), job
+(release, failed(), uuid, REAL), komanda (flagovi, `--real`, `--now`,
+scheduler), Filament (prazno stanje, podaci, link na tradera, equity
+razlog, REAL skriven, akcija queue-uje, grafik ≥ 2), 972 (use case, poll,
+notifikacija).
+
+### Verifikacija
+
+- `vendor/bin/pint --test`: passed.
+- `composer types:check`: 0 errors.
+- `php artisan test --compact`: 2299 total, 2295 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `php artisan migrate` nad dev bazom `trade_ledger`: nova migracija
+  primenjena.
+
+### Bezbednost
+
+Nijedan live eToro poziv (javna eToro dokumentacija pročitana preko
+web-a); `.env` nije čitan ni menjan; bez paketa; ništa destruktivno; bez
+commit-a.
+
+### Dopuna posle review-a (alias konflikti)
+
+- `AccountPnlMapper::positionPnl`: ugnežđen `unrealizedPnL.pnL` i ravan
+  `pnL` idu kroz isti conflict-safe `aliased()` — različite vrednosti →
+  `invalid_value` (`…unrealizedPnL.pnL`), ranije je tiho pobeđivao
+  ugnežđeni.
+- `orderSum`: `mirrorID` / `mirrorId` u `ordersForOpen` kroz `aliased()`
+  umesto `??` — konflikt → `invalid_value`
+  (`clientPortfolio.ordersForOpen[i].mirrorID`). U mapperu nema više `??`
+  između alias varijanti. D-051 t. 2 dopunjen.
+- Testovi: oba konflikta (i obrnut redosled za mirror id), saglasne duple
+  vrednosti, poruka bez vrednosti.
+
+### Dopuna posle review-a (kanonizacija alias-a)
+
+- `AccountPnlMapper::aliased()` prati prisustvo svakog ključa
+  (`array_key_exists`); `null` pored ne-null varijante → `invalid_value`
+  (ranije je tiho pobeđivala ne-null). Ne-null vrednosti se kanonizuju
+  parserom polja i porede kanonski (`mirrorID: 0` + `mirrorId: "0"`
+  prihvaćeno, ranije odbijeno). Svi `optional*`/`require*` pomoćnici
+  prosleđuju svoj parser. D-051 t. 2 dopunjen.
+- Testovi: null naspram vrednosti u oba redosleda (pozicija, ugnežđen/ravan
+  P&L, null `unrealizedPnL`, order, mirror), kanonski saglasne vrednosti
+  (0/"0", ID int/string, 12.3/12.30, 12/12.0), obe null (opciono i
+  obavezno).
+- Gate: `pint --test` passed; `types:check` 0 errors; `php artisan test`
+  2315 total, 2311 passed, 4 skipped, 1 poznato upozorenje. Bez commit-a.
+
+## 2026-10-08 — Milestone 6: zatvaranje A/B, C blokiran
+
+Samo dokumentacija; bez izmena koda, bez live poziva, `.env` nije čitan
+ni menjan, bez paketa, bez commit-a.
+
+- `docs/REVIEW_STATUS.md`: novi vrh — M6 status „A i B završeni, C
+  blokiran“; checkpoint-i B `61e611e` (D-050) i A `834f1e0` (D-051);
+  review runde ukratko; live provera 2026-10-08 (demo copy scope potvrđen
+  pre-check-om HTTP 200; `errorCode 972` za 4 tradera i iznose
+  $200–$25,000, prema web UI-ju minimalni depozit na real nalogu; nijedan
+  copy nije pokrenut; demo account sync `completed`, prvi snapshot prazan
+  nalog; `ETORO_ALLOW_DEMO_COPY` uključen lokalno); §20 M6 acceptance —
+  ispunjeno: Demo P&L import, snapshot-i, demo copy u kodu; nije
+  ispunjeno: actual copy performance i predicted vs actual (nema copy-ja
+  na nalogu). M5 zapis premešten u istoriju (merge kroz PR #11).
+- `README.md`: Status — M5 merge-ovan kroz PR #11; M6 delimično (A i B,
+  C blokiran). Sekcije „Demo copy trading“ i „My demo account“ proverene,
+  tačne.
+- Real nalog: čitanje i dalje odbijeno u kodu dok vlasnik ne prihvati Demo
+  praćenje.
+- U dokumentaciji nema username-ova tradera, vrednosti pozicija ni
+  ključeva.
+
+Gate: `git diff --check` čist; `pint --test` passed; `php artisan test`
+2315 total, 2311 passed, 4 skipped, 1 poznato upozorenje.

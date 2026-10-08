@@ -17,13 +17,13 @@ class EtoroConfigurationException extends RuntimeException
     }
 
     /**
-     * ETORO_BASE_URL must be a valid absolute URL with an https scheme and a
-     * non-empty host — credential headers must never be sent to a
-     * non-HTTPS or malformed endpoint. This is not a hard-coded hostname
-     * check, so a future demo/staging HTTPS endpoint remains configurable.
+     * ETORO_BASE_URL must be a bare https origin (no userinfo, port other
+     * than 443, path, query or fragment) — credential headers must never be
+     * sent to a non-HTTPS, malformed or path-shifted endpoint. Demo copy
+     * additionally pins the host to public-api.etoro.com (D-050).
      */
     public static function invalidBaseUrl(): self
     {
-        return new self('eToro configuration is invalid: ETORO_BASE_URL must be a valid absolute https:// URL.');
+        return new self('eToro configuration is invalid: ETORO_BASE_URL must be a bare https:// origin (no path, query, fragment, userinfo or non-443 port).');
     }
 }
