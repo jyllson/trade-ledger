@@ -38,6 +38,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Demo copy trading (D-050)
+    |--------------------------------------------------------------------------
+    |
+    | The only write exception: starting, adjusting and closing a copy of a
+    | trader on the eToro DEMO account (virtual money) through the exact
+    | allow-listed /api/v2/trading/copy/demo routes. Off by default; only a
+    | strict boolean true enables it. Real-account and every other write
+    | endpoint stay blocked in code regardless of this flag.
+    |
+    */
+
+    'allow_demo_copy' => env('ETORO_ALLOW_DEMO_COPY', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Request budget (per HTTP attempt, retries included — D-039)
     |--------------------------------------------------------------------------
     |

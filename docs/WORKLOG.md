@@ -2239,3 +2239,154 @@ username-ova i vrednosti u dokumentaciji.
 
 Samo dokumentacija; bez izmena koda; bez `.env`; bez novih paketa; bez
 live eToro poziva; bez commit-a.
+
+## 2026-10-08 — Milestone 6, Checkpoint B: kopiranje tradera na DEMO nalogu preko API-ja
+
+Grana `codex/milestone-6-demo-copy` (od `main` @ `fcd2365`). Odluka
+vlasnika 2026-10-08: „read-only, osim kopiranja tradera na DEMO nalogu“
+(D-050). Izvor: zvanična eToro „Copy Trading - Demo“ dokumentacija
+(OpenAPI v1.387.0), tretirana kao podatak.
+
+### Urađeno
+
+- Pravila: PROJECT.md §1, §2 (princip 1), §6.2, §10, §17, §20 M6;
+  `docs/DECISIONS.md` D-050; README sekcija „Demo copy trading“;
+  `docs/ETORO_API_CAPABILITIES.md` — demo copy endpoint-i kao
+  „documented, not live-verified“.
+- Guard: `EtoroWriteGuard::ensureDemoCopyRequestAllowed()` — tačna bela
+  lista (POST `/api/v2/trading/copy/demo`, `/eligibility`, `/close`; GET
+  `/{referenceId}`), `/real` uvek odbijen, flag `etoro.allow_demo_copy`
+  (`ETORO_ALLOW_DEMO_COPY`, default `false`, samo strogo `true`).
+  `ETORO_ALLOW_WRITE` nepromenjen (ruši boot, ne otvara ništa).
+- Klijent: `App\Etoro\EtoroDemoCopyClient` (`preCheck`, `startOrAdjust`,
+  `pollOutcome`, `close`), jedan pokušaj bez retry-ja, jedna dozvola
+  `etoro-api` budžeta, rezultat kao `EtoroDemoCopyResponse` (outcome
+  responded / not_sent / connection_failed). Zajedničke provere izdvojene
+  iz `EtoroClient`-a u trait `App\Etoro\Concerns\PreparesEtoroRequests`
+  (bez promene ponašanja; postojeći testovi klijenta prolaze).
+- Application: `App\Application\DemoCopy` — `PreCheckDemoCopy`,
+  `StartDemoCopy`, `AdjustDemoCopy`, `SubmitDemoCopyRegistration`,
+  `CloseDemoCopy`, `PollDemoCopyOutcome`, `DemoCopyLedger`,
+  `DemoCopyAvailability`, `DemoCopyAmount`, `DemoCopyResponseSanitizer`,
+  `DemoCopyRefused`; job `PollDemoCopyOutcomeJob` (≤ 10 poll-ova, ≈ 9,5
+  min, zatim `unknown`).
+- Audit: tabela `demo_copy_operations` (migracija
+  `2026_10_08_100000_create_demo_copy_operations_table`), model
+  `DemoCopyOperation`, enum-i `DemoCopyOperationType` /
+  `DemoCopyOperationStatus`, factory.
+- UI: na stranici tradera „Copy on demo“ / „Adjust demo copy“ / „Close
+  demo copy“ (`App\Filament\Resources\Traders\Actions\DemoCopyActions`;
+  pre-check → zaseban modal potvrde sa obaveznim checkbox-om), audit
+  lista `DemoCopyOperationResource` sa „Check outcome“; dashboard baner
+  navodi izuzetak. Bulk na stranici poređenja nije urađen.
+- `.env.example`: `ETORO_ALLOW_DEMO_COPY=false` uz komentar.
+- Testovi: `DemoCopyWriteGuardTest`, `EtoroDemoCopyClientTest`,
+  `Application/DemoCopy/DemoCopyUseCasesTest`, `DemoCopyActionsTest`;
+  ažurirani `ReadOnlySafetyTest` (novi ključ i env varijabla),
+  `WriteSurfaceTest` (samo `EtoroDemoCopyClient` sme da šalje ne-GET;
+  `EtoroClient` bez copy/execution putanja), `DashboardTest`,
+  `TraderResourceArchitectureTest` (+ `DemoCopyActions`).
+
+### Komande
+
+```bash
+git checkout -b codex/milestone-6-demo-copy
+php artisan migrate --no-interaction   # dev baza trade_ledger: 1 nova tabela
+vendor/bin/pint --format agent
+vendor/bin/pint --test
+composer types:check
+php artisan test --compact
+git diff --check
+```
+
+### Verifikacija
+
+- `vendor/bin/pint --test`: passed.
+- `composer types:check`: 0 errors.
+- `php artisan test --compact`: 2094 total, 2090 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `git diff --check`: čist.
+
+### Bezbednost
+
+Nijedan live eToro poziv (ni read ni write) — sve kroz `Http::fake()` i
+`Http::preventStrayRequests()`. `.env` nije čitan ni menjan; bez novih
+paketa; ništa destruktivno (samo `migrate`); bez commit-a (ide nezavisni
+review). Live provera demo copy-ja je poseban korak uz potvrdu vlasnika.
+
+## 2026-10-08 — Milestone 6, Checkpoint B: ispravke posle security review-a
+
+Grana `codex/milestone-6-demo-copy`, necommit-ovano. D-050 ažuriran.
+
+### Urađeno
+
+- **Redakcija kredencijala:** `DemoCopyResponseSanitizer` menja tačne
+  vrednosti `etoro.api_key`/`etoro.user_key` (≥ 8 karaktera) sa
+  `[redacted]` u svim propuštenim stringovima odgovora i u `reason`-u,
+  pre truncate-a (D-050). Testovi: sentinel ključ sam i unutar teksta u
+  `error`, `errorMessage`, `failReason`; truncate granica; prazne/kratke
+  tajne ne rediguju ništa (`DemoCopyResponseSanitizerTest`).
+- **Redakcija encoded oblika:** rediguju se i JSON-escaped (sve
+  kombinacije escaped `/` i `\u`) i URL-encoded (`urlencode`,
+  `rawurlencode`) varijante ključa, case-insensitive; posle truncate-a
+  kraj koji je prefiks ≥ 8 bajtova bilo koje varijante postaje
+  `[redacted]`. Base64 namerno izostavljen (D-050). Sentinel testovi:
+  JSON escaping, obe URL varijante + lowercase hex, ključ bez
+  specijalnih karaktera, ključ preko granice truncate-a i upstream-odsečen
+  prefiks.
+- **BLOCKER — base_url / guard:** `ETORO_BASE_URL` mora biti goli https
+  origin (`PreparesEtoroRequests::validatedApiOrigin()`; bez userinfo-a,
+  porta osim 443, putanje, query-ja, fragmenta, `%`, `\`, razmaka).
+  `EtoroDemoCopyClient` zahteva host tačno `public-api.etoro.com`
+  (`EtoroWriteGuard::DEMO_COPY_HOST`), a URL gradi samo iz
+  `EtoroWriteGuard::DEMO_COPY_ORIGIN` + putanje. `ensureDemoCopyRequestAllowed()`
+  sada prima i parsira **konačni URL** (šema, host, port, userinfo,
+  query, fragment, normalizovana putanja, metod). Redirect-i se ne prate
+  (test: 307 ka `/real` → jedan zahtev, vraćen 307; test pada kad se
+  redirect uključi). Read klijent: ista stroga validacija origin-a, host
+  ostaje konfigurabilan (D-011), URL iz validiranog origin-a.
+- **MAJOR — close:** `accepted` samo za HTTP 200 sa `token` UUID jednakim
+  poslatom `clientRequestID`-u, inače `unknown`; `accepted` = „zatraženo,
+  nije potvrđeno“. `DemoCopyLedger::activeCopy()` više ne gasi kopiju
+  posle close-a; nov `unconfirmedClose()`. Posle close-a: adjust
+  blokiran; start uz upozorenje i obavezan dodatni checkbox
+  (`acknowledge_unconfirmed_close` / `acknowledgeUnconfirmedClose`) —
+  izabrano umesto blokade jer potvrde zatvaranja nema do M6-A. Ponovljen
+  close (posle `accepted`/`unknown`) koristi isti `clientRequestID`.
+  Audit lista i obaveštenje prikazuju „Requested — not confirmed“.
+- **MAJOR — strogi ugovor:** nov `App\Application\DemoCopy\DemoCopyResponseContract`
+  (pre-check: `CID` int32, `parentCID` int strogo = poslatom, `isSuccess`
+  bool, opciona polja tipizirana; start: 200 + UUID `token`; poll:
+  `referenceID`, `isSuccess`, `mirrorID` samo uz uspeh, `parentCID` +
+  `parentUsername` u paru i `parentCID` = poslatom, opciona polja
+  tipizirana). Van ugovora → `unknown`; pre-check `unknown` ne dozvoljava
+  nastavak.
+- Testovi: zlonamerni base_url-ovi (path, query, fragment, userinfo, drugi
+  / lookalike host, http, port, `%2F`, `..`, `//`, `\`, uppercase host,
+  prazno) za sve četiri metode uz `Http::assertNothingSent()`; URL-level
+  guard testovi; read klijent; close/start/pre-check/poll tela van
+  ugovora; tok close → adjust blokiran → start traži potvrdu (use case i
+  Filament).
+
+### Komande
+
+```bash
+vendor/bin/pint --format agent <izmenjeni fajlovi>
+vendor/bin/pint --test
+composer types:check
+php artisan test --compact
+git diff --check
+```
+
+### Verifikacija
+
+- `vendor/bin/pint --test`: passed.
+- `composer types:check`: 0 errors.
+- `php artisan test --compact`: 2209 total, 2205 passed, 4 skipped,
+  1 poznato nepovezano upozorenje.
+- `git diff --check`: čist.
+
+### Bezbednost
+
+Nijedan live eToro poziv; `.env` nije čitan ni menjan; bez paketa; ništa
+destruktivno; bez commit-a.

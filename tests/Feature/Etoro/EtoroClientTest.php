@@ -540,3 +540,34 @@ it('requests the instrument type catalogue', function () {
 
     Http::assertSent(fn (Request $request) => $request->url() === 'https://public-api.etoro.com/api/v1/market-data/instrument-types');
 });
+
+it('rejects a base URL that is not a bare https origin and sends no request', function (string $baseUrl) {
+    config(['etoro.base_url' => $baseUrl]);
+    Http::fake();
+
+    expect(fn () => app(EtoroClient::class)->authenticatedUser())
+        ->toThrow(EtoroConfigurationException::class, 'bare https:// origin');
+
+    Http::assertNothingSent();
+})->with([
+    'path' => ['https://public-api.etoro.com/api/v1/trading/info/real'],
+    'query' => ['https://public-api.etoro.com?x='],
+    'fragment' => ['https://public-api.etoro.com#x'],
+    'userinfo' => ['https://user@public-api.etoro.com'],
+    'other port' => ['https://public-api.etoro.com:8443'],
+    'encoded slash' => ['https://public-api.etoro.com%2Fapi'],
+    'double slash' => ['https://public-api.etoro.com//'],
+]);
+
+it('keeps the read-only host configurable and builds the URL from the bare origin', function (string $baseUrl, string $expectedUrl) {
+    config(['etoro.base_url' => $baseUrl]);
+    Http::fake(['*' => Http::response(['gcid' => 1, 'scopes' => []], 200)]);
+
+    app(EtoroClient::class)->authenticatedUser();
+
+    Http::assertSent(fn (Request $request) => str_starts_with($request->url(), $expectedUrl));
+})->with([
+    'trailing slash' => ['https://public-api.etoro.com/', 'https://public-api.etoro.com/api/'],
+    'explicit 443' => ['https://public-api.etoro.com:443', 'https://public-api.etoro.com/api/'],
+    'staging host' => ['https://staging-api.etoro.example', 'https://staging-api.etoro.example/api/'],
+]);

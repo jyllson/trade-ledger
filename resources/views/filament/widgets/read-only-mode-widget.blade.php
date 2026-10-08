@@ -5,13 +5,24 @@
                 {{ $writeAllowed ? 'Write mode' : 'Read-only analytics mode' }}
             </x-filament::badge>
 
+            @if ($demoCopyEnabled)
+                <x-filament::badge color="warning" size="lg">
+                    Demo copy enabled
+                </x-filament::badge>
+            @endif
+
             <div class="text-sm">
                 <p class="font-medium">
                     eToro write operations are blocked.
                 </p>
                 <p class="text-gray-500 dark:text-gray-400">
                     This application only reads and analyzes data ({{ $environment }} environment).
-                    No trading, copying, deposit, or withdrawal actions are possible.
+                    No trading, real-account copying, deposit, or withdrawal actions are possible.
+                    @if ($demoCopyEnabled)
+                        Sole exception: copying traders on the eToro DEMO account (virtual money), after an eToro pre-check and an explicit confirmation.
+                    @else
+                        Demo copy trading is disabled (ETORO_ALLOW_DEMO_COPY).
+                    @endif
                 </p>
             </div>
         </div>

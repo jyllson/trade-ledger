@@ -20,8 +20,10 @@ profiles with transparent filters, data-quality warnings, CSV export) is
 A–D, pending its PR/merge into `main`). Per-milestone evidence and the
 `PROJECT.md` §20 acceptance criteria are in `docs/REVIEW_STATUS.md`. The
 next product milestone per `PROJECT.md` §20 is Milestone 6 (own account
-tracking). The application contains no trading/write capability at any
-point.
+tracking); its Checkpoint B adds demo copy trading on branch
+`codex/milestone-6-demo-copy`. The application has no trading or
+real-account write capability; the single exception is copying traders on
+the eToro **DEMO** account (see below, `docs/DECISIONS.md` D-050).
 
 All timestamps are stored in UTC and shown in the UI in `Europe/Malta`
 with the zone abbreviation (e.g. `2026-10-06 10:30 CEST`;
@@ -34,8 +36,10 @@ only in your local `.env` file (already git-ignored) or a secret manager.
 Never paste key values into source control, issue descriptions, screenshots,
 commit messages, or AI prompts.
 
-`ETORO_ALLOW_WRITE` must stay `false`. Write/trading capability is not
-implemented in this application during the MVP — see `app/Etoro/EtoroWriteGuard.php`.
+`ETORO_ALLOW_WRITE` must stay `false` (the app refuses to boot otherwise)
+and never enables anything. Trading and real-account writes are not
+implemented; the only write path is demo copy trading, off by default
+(`ETORO_ALLOW_DEMO_COPY=false`) — see `app/Etoro/EtoroWriteGuard.php`.
 
 ## Requirements
 
@@ -189,6 +193,44 @@ Each HTTP attempt is bounded by `ETORO_TIMEOUT_SECONDS` /
 `ETORO_CONNECT_TIMEOUT_SECONDS`; sync jobs have an 80 s timeout (below the
 90 s queue `retry_after`), and an interrupted job's `ImportRun` is closed
 as `failed` instead of staying `running` (D-040).
+
+### Demo copy trading (DEMO account only)
+
+Owner decision 2026-10-08 (`docs/DECISIONS.md` D-050): the app may copy a
+trader on the eToro **DEMO** account (virtual money) through the documented
+"Copy Trading - Demo" API. Nothing else is writable.
+
+Enable (owner only, edits the local `.env`):
+
+```env
+ETORO_ENABLED=true
+ETORO_ALLOW_DEMO_COPY=true   # default false
+ETORO_ALLOW_WRITE=false      # must stay false; opens nothing
+```
+
+The API key also needs the demo trading write permission (OAuth scopes
+`etoro-public:demo:write` / `etoro-public:trade.demo:write`; the matching
+Key Management UI entry is not documented). Never grant real-account
+write permissions.
+
+Flow on a trader page (`/admin/traders/{id}`): **Copy on demo** → amount →
+eToro pre-check (dry run) → only if allowed, a separate confirmation modal
+(DEMO account, trader, amount, checkbox) → start → the outcome is polled by
+a queued job (needs the queue worker; at most 10 polls over ~10 minutes,
+then `unknown`). **Adjust demo copy** adds (positive) or removes (negative)
+funds of an active copy the same way; **Close demo copy** closes or
+detaches it (no pre-check exists; confirmation required; eToro only
+acknowledges, completion is not pollable). Every attempt is listed under
+**Demo trading → Demo copy operations** (`/admin/demo-copy-operations`),
+with a manual **Check outcome** for unresolved operations. While the flag
+is off the actions are visible but disabled with the reason.
+
+Forbidden in code regardless of any flag: every path containing `/real`,
+orders and positions (demo or real), transfers, feed, watchlists, price
+alerts, the documented DELETE close binding, and any route not on the
+exact allow-list (`POST /api/v2/trading/copy/demo`, `…/eligibility`,
+`…/close`, `GET …/{referenceId}`). Demo copy requests are never retried —
+an uncertain start is resolved only by polling its `referenceID`.
 
 ### Background services on macOS (launchd)
 
